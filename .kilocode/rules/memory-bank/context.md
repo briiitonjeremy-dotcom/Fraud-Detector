@@ -28,6 +28,11 @@ FraudGuard is a fintech web application for real-time fraud detection. The front
 - [x] Link transaction data from Explain page to dashboard
 - [x] Fix: Show actual CSV columns dynamically on upload page
 - [x] Fix: Show actual transaction count (100k) instead of sample count (5)
+- [x] Fix: Process more transactions (up to 1000) from uploaded CSV
+- [x] Fix: Use actual isFraud column from CSV instead of random scores
+- [x] Fix: Generate transaction IDs using step and row index
+- [x] Fix: Display more transactions in dashboard table (20 instead of 10)
+- [x] Fix: Handle null/undefined fraud scores properly in UI
 
 ## Current Structure
 

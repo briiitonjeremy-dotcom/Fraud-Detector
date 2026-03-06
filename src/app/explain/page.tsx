@@ -45,6 +45,7 @@ export default function ExplainPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [result, setResult] = useState<ExplainResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [savedToDb, setSavedToDb] = useState(false);
 
   const handleExplain = async () => {
     if (!transactionId.trim()) {
@@ -55,6 +56,7 @@ export default function ExplainPage() {
     setIsLoading(true);
     setError(null);
     setResult(null);
+    setSavedToDb(false);
 
     try {
       const response = await fetch(`${ML_SERVICE_URL}/explain/${transactionId}`, {
@@ -116,6 +118,57 @@ export default function ExplainPage() {
     setTransactionId("TXN_12345");
     setResult(demoResult);
     setError(null);
+    setSavedToDb(false);
+  };
+
+  // Save transaction to local storage (simulating database)
+  const handleSaveToDatabase = () => {
+    if (!result) return;
+    
+    try {
+      // Get existing transactions
+      const existingData = localStorage.getItem('fraudguard_transactions');
+      const transactions = existingData ? JSON.parse(existingData) : [];
+      
+      // Add new transaction
+      const newTransaction = {
+        transaction_id: result.transaction_id,
+        fraud_score: result.fraud_score,
+        is_fraud: result.is_fraud,
+        amount: 5000, // Default amount for demo
+        vendor_name: "Demo Vendor",
+        analyzed_at: new Date().toISOString()
+      };
+      
+      transactions.push(newTransaction);
+      
+      // Save back to localStorage
+      localStorage.setItem('fraudguard_transactions', JSON.stringify(transactions));
+      
+      // Update results storage too
+      const storedResults = localStorage.getItem('fraudguard_results');
+      const results = storedResults ? JSON.parse(storedResults) : {
+        total_transactions: 0,
+        fraud_detected: 0,
+        fraud_rate: 0
+      };
+      
+      results.total_transactions += 1;
+      if (newTransaction.is_fraud) {
+        results.fraud_detected += 1;
+      }
+      results.fraud_rate = results.total_transactions > 0 
+        ? (results.fraud_detected / results.total_transactions) * 100 
+        : 0;
+      results.processedAt = new Date().toISOString();
+      
+      localStorage.setItem('fraudguard_results', JSON.stringify(results));
+      
+      setSavedToDb(true);
+      alert(`Transaction ${result.transaction_id} saved to database successfully!`);
+    } catch (err) {
+      alert("Failed to save transaction to database");
+    }
   };
 
   return (
@@ -229,6 +282,18 @@ export default function ExplainPage() {
                   <span style={{ fontSize: "0.875rem", color: "var(--text-muted)" }}>
                     Base Value: <strong>{result.base_value}</strong>
                   </span>
+                </div>
+                <div style={{ marginTop: "1.5rem", display: "flex", gap: "1rem" }}>
+                  <button
+                    onClick={handleSaveToDatabase}
+                    className="btn btn-primary"
+                    disabled={savedToDb}
+                  >
+                    {savedToDb ? "✓ Saved to Database" : "💾 Save to Database"}
+                  </button>
+                  <Link href="/" className="btn btn-secondary">
+                    📊 View on Dashboard
+                  </Link>
                 </div>
               </div>
 

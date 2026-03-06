@@ -30,7 +30,22 @@ export default function Dashboard() {
   const [stats, setStats] = useState(defaultStats);
   const [vendors, setVendors] = useState<{name: string, transactions: number, fraud: number, rate: number}[]>([]);
   const [alerts, setAlerts] = useState<{time: string, severity: string, message: string}[]>([]);
+  const [recentTransaction, setRecentTransaction] = useState<{id: string, score: number, isFraud: boolean, amount?: number, vendor?: string} | null>(null);
   const isMounted = useCallback(() => { let mounted = true; return () => { mounted = false; }; }, []);
+
+  // Handle clearing all data
+  const handleClearData = () => {
+    if (confirm("Are you sure you want to clear all stored data? This will remove all processed datasets and transaction history.")) {
+      localStorage.removeItem('fraudguard_results');
+      localStorage.removeItem('fraudguard_transactions');
+      setStats(defaultStats);
+      setVendors([]);
+      setAlerts([]);
+      setHasRealData(false);
+      setProcessedAt("");
+      setRecentTransaction(null);
+    }
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -50,6 +65,24 @@ export default function Dashboard() {
           setProcessedAt(parsed.processedAt || "");
           setHasRealData(true);
           setLastUpdate(new Date().toLocaleTimeString());
+        }
+        
+        // Also check for stored transactions (from Explain page)
+        const storedTransactions = localStorage.getItem('fraudguard_transactions');
+        if (storedTransactions && mounted) {
+          const txns = JSON.parse(storedTransactions);
+          if (txns.length > 0) {
+            // Get the most recent transaction
+            const latestTxn = txns[txns.length - 1];
+            setRecentTransaction({
+              id: latestTxn.transaction_id,
+              score: latestTxn.fraud_score,
+              isFraud: latestTxn.is_fraud,
+              amount: latestTxn.amount,
+              vendor: latestTxn.vendor_name
+            });
+            setHasRealData(true);
+          }
         }
       } catch (e) {
         // localStorage not available or parse error
@@ -149,11 +182,49 @@ export default function Dashboard() {
                 {new Date().toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
               </span>
             </div>
+            {hasRealData && (
+              <button 
+                onClick={handleClearData}
+                className="btn btn-secondary"
+                style={{ padding: "0.5rem 1rem", fontSize: "0.875rem" }}
+                title="Clear all stored data"
+              >
+                🗑 Clear Data
+              </button>
+            )}
           </div>
         </div>
 
         {/* Stats Grid */}
         <div className="stats-grid">
+          {/* Recent Transaction Card */}
+          {recentTransaction && (
+            <div className="stat-card" style={{ gridColumn: "span 2" }}>
+              <div className="stat-icon blue">⟁</div>
+              <div className="stat-label">Latest Analyzed Transaction</div>
+              <div style={{ display: "flex", alignItems: "center", gap: "1rem", marginTop: "0.5rem" }}>
+                <div>
+                  <div style={{ fontSize: "1.25rem", fontWeight: 600, color: "var(--text-primary)" }}>
+                    {recentTransaction.id}
+                  </div>
+                  <div style={{ fontSize: "0.875rem", color: "var(--text-muted)" }}>
+                    {recentTransaction.vendor || "Unknown Vendor"} • ${recentTransaction.amount?.toLocaleString() || "—"}
+                  </div>
+                </div>
+                <div style={{ marginLeft: "auto", textAlign: "right" }}>
+                  <div style={{ fontSize: "1.5rem", fontWeight: 700, 
+                    color: recentTransaction.isFraud ? "var(--danger)" : "var(--success)" 
+                  }}>
+                    {Math.round(recentTransaction.score * 100)}%
+                  </div>
+                  <span className={recentTransaction.isFraud ? "badge badge-danger" : "badge badge-success"}>
+                    {recentTransaction.isFraud ? "FRAUD" : "LEGITIMATE"}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+          
           <div className="stat-card">
             <div className="stat-icon blue">⬡</div>
             <div className="stat-label">Total Transactions</div>

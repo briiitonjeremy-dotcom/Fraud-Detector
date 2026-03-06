@@ -15,62 +15,58 @@ const navItems = [
 ];
 
 // Demo data for when ML service is unavailable
-const demoStats = {
-  totalTransactions: 24589,
-  fraudDetected: 1247,
-  fraudRate: 5.07,
-  riskScore: 72,
+const defaultStats = {
+  totalTransactions: 0,
+  fraudDetected: 0,
+  fraudRate: 0,
+  riskScore: 0,
 };
-
-const demoVendors = [
-  { name: "TechStore Inc", transactions: 4521, fraud: 312, rate: 6.9 },
-  { name: "Global Payments", transactions: 3892, fraud: 201, rate: 5.2 },
-  { name: "QuickBuy Online", transactions: 3102, fraud: 142, rate: 4.6 },
-  { name: "SecurePay Ltd", transactions: 2847, fraud: 98, rate: 3.4 },
-  { name: "FastCheckout", transactions: 2103, fraud: 67, rate: 3.2 },
-];
-
-const demoAlerts = [
-  { time: "2 min ago", severity: "high", message: "Unusual transaction pattern detected from IP 192.168.1.1" },
-  { time: "15 min ago", severity: "medium", message: "Multiple failed authentication attempts" },
-  { time: "1 hour ago", severity: "low", message: "New vendor registered: QuickShop" },
-  { time: "2 hours ago", severity: "high", message: "High-value transaction flagged: $45,000" },
-];
 
 export default function Dashboard() {
   const [mlStatus, setMlStatus] = useState<"loading" | "online" | "offline">("loading");
   const [lastUpdate, setLastUpdate] = useState<string>("");
-  const [stats, setStats] = useState(demoStats);
-  const [vendors, setVendors] = useState(demoVendors);
-  const [alerts, setAlerts] = useState(demoAlerts);
+  const [hasRealData, setHasRealData] = useState(false);
+  const [processedAt, setProcessedAt] = useState<string>("");
+  const [stats, setStats] = useState(defaultStats);
+  const [vendors, setVendors] = useState<{name: string, transactions: number, fraud: number, rate: number}[]>([]);
+  const [alerts, setAlerts] = useState<{time: string, severity: string, message: string}[]>([]);
   const isMounted = useCallback(() => { let mounted = true; return () => { mounted = false; }; }, []);
 
   useEffect(() => {
     let mounted = true;
     
     const fetchData = async () => {
+      // First, check localStorage for processed data
+      try {
+        const storedData = localStorage.getItem('fraudguard_results');
+        if (storedData && mounted) {
+          const parsed = JSON.parse(storedData);
+          setStats({
+            totalTransactions: parsed.total_transactions || 0,
+            fraudDetected: parsed.fraud_detected || 0,
+            fraudRate: parsed.fraud_rate || 0,
+            riskScore: Math.round((parsed.fraud_rate || 0) * 10),
+          });
+          setProcessedAt(parsed.processedAt || "");
+          setHasRealData(true);
+          setLastUpdate(new Date().toLocaleTimeString());
+        }
+      } catch (e) {
+        // localStorage not available or parse error
+      }
+      
+      // Then check ML service health
       try {
         const response = await fetch(`${ML_SERVICE_URL}/health`, {
           method: "GET",
           headers: { "Content-Type": "application/json" },
         });
-        if (mounted && response.ok) {
-          setMlStatus("online");
-          setLastUpdate(new Date().toLocaleTimeString());
-          
-          try {
-            const data = await response.json();
-            if (mounted && data.stats) {
-              setStats(prev => ({
-                ...prev,
-                ...data.stats
-              }));
-            }
-          } catch (e) {
-            // Use demo data
+        if (mounted) {
+          if (response.ok) {
+            setMlStatus("online");
+          } else {
+            setMlStatus("offline");
           }
-        } else if (mounted) {
-          setMlStatus("offline");
         }
       } catch (error) {
         if (mounted) setMlStatus("offline");
@@ -161,39 +157,83 @@ export default function Dashboard() {
           <div className="stat-card">
             <div className="stat-icon blue">⬡</div>
             <div className="stat-label">Total Transactions</div>
-            <div className="stat-value">{stats.totalTransactions.toLocaleString()}</div>
-            <div className="stat-change positive" style={{ marginTop: "0.75rem", fontSize: "0.75rem", color: "var(--success-light)" }}>
-              ▲ 12.5% from last week
-            </div>
+            {hasRealData ? (
+              <>
+                <div className="stat-value">{stats.totalTransactions.toLocaleString()}</div>
+                <div className="stat-change positive" style={{ marginTop: "0.75rem", fontSize: "0.75rem", color: "var(--success-light)" }}>
+                  ▲ Processed from dataset
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="stat-value" style={{ opacity: 0.5 }}>—</div>
+                <div style={{ marginTop: "0.75rem", fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                  Upload a dataset to see results
+                </div>
+              </>
+            )}
           </div>
           
           <div className="stat-card">
             <div className="stat-icon red">⚠</div>
             <div className="stat-label">Fraud Detected</div>
-            <div className="stat-value">{stats.fraudDetected.toLocaleString()}</div>
-            <div className="stat-change negative" style={{ marginTop: "0.75rem", fontSize: "0.75rem", color: "var(--danger-light)" }}>
-              ▼ 3.2% from last week
-            </div>
+            {hasRealData ? (
+              <>
+                <div className="stat-value">{stats.fraudDetected.toLocaleString()}</div>
+                <div className="stat-change negative" style={{ marginTop: "0.75rem", fontSize: "0.75rem", color: "var(--danger-light)" }}>
+                  Flagged transactions
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="stat-value" style={{ opacity: 0.5 }}>—</div>
+                <div style={{ marginTop: "0.75rem", fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                  No fraud detected yet
+                </div>
+              </>
+            )}
           </div>
           
           <div className="stat-card">
             <div className="stat-icon gold">◧</div>
             <div className="stat-label">Fraud Rate</div>
-            <div className="stat-value">{stats.fraudRate}%</div>
-            <div className="stat-change negative" style={{ marginTop: "0.75rem", fontSize: "0.75rem", color: "var(--warning-light)" }}>
-              ▼ 0.8% from last week
-            </div>
+            {hasRealData ? (
+              <>
+                <div className="stat-value">{stats.fraudRate.toFixed(2)}%</div>
+                <div className="stat-change negative" style={{ marginTop: "0.75rem", fontSize: "0.75rem", color: "var(--warning-light)" }}>
+                  Based on processed data
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="stat-value" style={{ opacity: 0.5 }}>—</div>
+                <div style={{ marginTop: "0.75rem", fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                  Awaiting dataset
+                </div>
+              </>
+            )}
           </div>
           
           <div className="stat-card">
             <div className="stat-icon green">◎</div>
             <div className="stat-label">Risk Score</div>
-            <div className="stat-value">{stats.riskScore}</div>
-            <div style={{ marginTop: "0.75rem" }}>
-              <span className={stats.riskScore > 70 ? "badge badge-danger" : stats.riskScore > 40 ? "badge badge-warning" : "badge badge-success"}>
-                {stats.riskScore > 70 ? "HIGH RISK" : stats.riskScore > 40 ? "MEDIUM RISK" : "LOW RISK"}
-              </span>
-            </div>
+            {hasRealData ? (
+              <>
+                <div className="stat-value">{stats.riskScore}</div>
+                <div style={{ marginTop: "0.75rem" }}>
+                  <span className={stats.riskScore > 70 ? "badge badge-danger" : stats.riskScore > 40 ? "badge badge-warning" : "badge badge-success"}>
+                    {stats.riskScore > 70 ? "HIGH RISK" : stats.riskScore > 40 ? "MEDIUM RISK" : "LOW RISK"}
+                  </span>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="stat-value" style={{ opacity: 0.5 }}>—</div>
+                <div style={{ marginTop: "0.75rem" }}>
+                  <span className="badge badge-info">NO DATA</span>
+                </div>
+              </>
+            )}
           </div>
         </div>
 
@@ -203,57 +243,94 @@ export default function Dashboard() {
           <div className="card">
             <div className="card-header">
               <h3 className="card-title">Real-Time Risk Score</h3>
-              <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>Live</span>
+              {hasRealData && <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>Live</span>}
             </div>
-            <div style={{ display: "flex", justifyContent: "center", padding: "1rem" }}>
-              <div className="risk-gauge">
-                <div className="gauge-bg" />
-                <div className="gauge-cover" />
-                <div className="gauge-value" style={{ 
-                  color: stats.riskScore > 70 ? "#ef4444" : stats.riskScore > 40 ? "#f59e0b" : "#10b981"
-                }}>
-                  {stats.riskScore}
+            {hasRealData ? (
+              <>
+                <div style={{ display: "flex", justifyContent: "center", padding: "1rem" }}>
+                  <div className="risk-gauge">
+                    <div className="gauge-bg" />
+                    <div className="gauge-cover" />
+                    <div className="gauge-value" style={{ 
+                      color: stats.riskScore > 70 ? "#ef4444" : stats.riskScore > 40 ? "#f59e0b" : "#10b981"
+                    }}>
+                      {stats.riskScore}
+                    </div>
+                  </div>
                 </div>
+                <div style={{ textAlign: "center", marginTop: "0.5rem" }}>
+                  <span className={stats.riskScore > 70 ? "badge badge-danger" : stats.riskScore > 40 ? "badge badge-warning" : "badge badge-success"}>
+                    {stats.riskScore > 70 ? "HIGH RISK" : stats.riskScore > 40 ? "MEDIUM RISK" : "LOW RISK"}
+                  </span>
+                </div>
+              </>
+            ) : (
+              <div style={{ 
+                display: "flex", 
+                flexDirection: "column",
+                alignItems: "center", 
+                justifyContent: "center", 
+                padding: "3rem 1rem" 
+              }}>
+                <div style={{ fontSize: "3rem", marginBottom: "1rem", opacity: 0.3 }}>📊</div>
+                <p style={{ color: "var(--text-muted)", textAlign: "center" }}>
+                  Upload a dataset to see your risk analysis
+                </p>
+                <Link href="/upload" className="btn btn-primary" style={{ marginTop: "1rem" }}>
+                  Upload Dataset
+                </Link>
               </div>
-            </div>
-            <div style={{ textAlign: "center", marginTop: "0.5rem" }}>
-              <span className={stats.riskScore > 70 ? "badge badge-danger" : stats.riskScore > 40 ? "badge badge-warning" : "badge badge-success"}>
-                {stats.riskScore > 70 ? "HIGH RISK" : stats.riskScore > 40 ? "MEDIUM RISK" : "LOW RISK"}
-              </span>
-            </div>
+            )}
           </div>
 
           {/* Fraud Trend */}
           <div className="card">
             <div className="card-header">
-              <h3 className="card-title">Fraud Trend (Last 14 Days)</h3>
-              <div style={{ display: "flex", gap: "0.5rem" }}>
-                <span style={{ width: "12px", height: "12px", borderRadius: "50%", background: "var(--danger)" }} />
-                <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>Fraud Count</span>
-              </div>
+              <h3 className="card-title">Fraud Trend</h3>
+              {hasRealData && (
+                <div style={{ display: "flex", gap: "0.5rem" }}>
+                  <span style={{ width: "12px", height: "12px", borderRadius: "50%", background: "var(--danger)" }} />
+                  <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>Fraud Count</span>
+                </div>
+              )}
             </div>
-            <div className="chart-container">
+            {hasRealData ? (
+              <div className="chart-container">
+                <div style={{ 
+                  display: "flex", 
+                  alignItems: "flex-end", 
+                  justifyContent: "space-around", 
+                  height: "100%",
+                  padding: "1rem"
+                }}>
+                  {[65, 45, 78, 52, 90, 68, 42, 55, 73, 48, 82, 61, 38, 70].map((val, i) => (
+                    <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.5rem" }}>
+                      <div style={{ 
+                        width: "20px", 
+                        height: `${val * 2.5}px`, 
+                        background: `linear-gradient(180deg, #ef4444 0%, #f87171 100%)`,
+                        borderRadius: "4px 4px 0 0",
+                        boxShadow: "0 -4px 12px rgba(239, 68, 68, 0.3)"
+                      }} />
+                      <span style={{ fontSize: "0.625rem", color: "var(--text-muted)" }}>{i + 1}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
               <div style={{ 
                 display: "flex", 
-                alignItems: "flex-end", 
-                justifyContent: "space-around", 
-                height: "100%",
-                padding: "1rem"
+                flexDirection: "column",
+                alignItems: "center", 
+                justifyContent: "center", 
+                padding: "3rem 1rem" 
               }}>
-                {[65, 45, 78, 52, 90, 68, 42, 55, 73, 48, 82, 61, 38, 70].map((val, i) => (
-                  <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.5rem" }}>
-                    <div style={{ 
-                      width: "20px", 
-                      height: `${val * 2.5}px`, 
-                      background: `linear-gradient(180deg, #ef4444 0%, #f87171 100%)`,
-                      borderRadius: "4px 4px 0 0",
-                      boxShadow: "0 -4px 12px rgba(239, 68, 68, 0.3)"
-                    }} />
-                    <span style={{ fontSize: "0.625rem", color: "var(--text-muted)" }}>{i + 1}</span>
-                  </div>
-                ))}
+                <div style={{ fontSize: "3rem", marginBottom: "1rem", opacity: 0.3 }}>📈</div>
+                <p style={{ color: "var(--text-muted)", textAlign: "center" }}>
+                  Fraud trend data will appear here after processing
+                </p>
               </div>
-            </div>
+            )}
           </div>
         </div>
 
@@ -264,67 +341,97 @@ export default function Dashboard() {
             <div className="card-header">
               <h3 className="card-title">High-Risk Vendors</h3>
               <Link href="/upload" className="btn btn-secondary" style={{ padding: "0.5rem 1rem", fontSize: "0.75rem" }}>
-                View All
+                Upload Dataset
               </Link>
             </div>
-            <div className="table-container">
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>Vendor</th>
-                    <th>Transactions</th>
-                    <th>Fraud</th>
-                    <th>Rate</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {vendors.map((vendor, i) => (
-                    <tr key={i}>
-                      <td>
-                        <span style={{ fontWeight: i < 3 ? 600 : 400 }}>
-                          {vendor.name}
-                          {i < 3 && <span style={{ marginLeft: "0.5rem", color: "var(--danger)" }}>⚠</span>}
-                        </span>
-                      </td>
-                      <td>{vendor.transactions.toLocaleString()}</td>
-                      <td>{vendor.fraud}</td>
-                      <td>
-                        <span className={vendor.rate > 5 ? "badge badge-danger" : vendor.rate > 3 ? "badge badge-warning" : "badge badge-success"}>
-                          {vendor.rate}%
-                        </span>
-                      </td>
+            {vendors.length > 0 ? (
+              <div className="table-container">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Vendor</th>
+                      <th>Transactions</th>
+                      <th>Fraud</th>
+                      <th>Rate</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {vendors.map((vendor, i) => (
+                      <tr key={i}>
+                        <td>
+                          <span style={{ fontWeight: i < 3 ? 600 : 400 }}>
+                            {vendor.name}
+                            {i < 3 && <span style={{ marginLeft: "0.5rem", color: "var(--danger)" }}>⚠</span>}
+                          </span>
+                        </td>
+                        <td>{vendor.transactions.toLocaleString()}</td>
+                        <td>{vendor.fraud}</td>
+                        <td>
+                          <span className={vendor.rate > 5 ? "badge badge-danger" : vendor.rate > 3 ? "badge badge-warning" : "badge badge-success"}>
+                            {vendor.rate}%
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div style={{ 
+                display: "flex", 
+                flexDirection: "column",
+                alignItems: "center", 
+                justifyContent: "center", 
+                padding: "3rem 1rem" 
+              }}>
+                <div style={{ fontSize: "3rem", marginBottom: "1rem", opacity: 0.3 }}>🏪</div>
+                <p style={{ color: "var(--text-muted)", textAlign: "center" }}>
+                  Vendor analysis will appear after uploading a dataset
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Security Alerts */}
           <div className="card">
             <div className="card-header">
               <h3 className="card-title">Security Alerts</h3>
-              <span className="badge badge-danger">4 new</span>
+              {alerts.length > 0 && <span className="badge badge-danger">{alerts.length} new</span>}
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-              {alerts.map((alert, i) => (
-                <div key={i} style={{ 
-                  padding: "1rem", 
-                  background: "rgba(0, 0, 0, 0.2)", 
-                  borderRadius: "8px",
-                  borderLeft: `3px solid ${alert.severity === "high" ? "#ef4444" : alert.severity === "medium" ? "#f59e0b" : "#3b82f6"}`,
-                  transition: "all 0.2s ease"
-                }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem" }}>
-                    <span className={alert.severity === "high" ? "badge badge-danger" : alert.severity === "medium" ? "badge badge-warning" : "badge badge-info"}>
-                      {alert.severity.toUpperCase()}
-                    </span>
-                    <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>{alert.time}</span>
+            {alerts.length > 0 ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+                {alerts.map((alert, i) => (
+                  <div key={i} style={{ 
+                    padding: "1rem", 
+                    background: "rgba(0, 0, 0, 0.2)", 
+                    borderRadius: "8px",
+                    borderLeft: `3px solid ${alert.severity === "high" ? "#ef4444" : alert.severity === "medium" ? "#f59e0b" : "#3b82f6"}`,
+                    transition: "all 0.2s ease"
+                  }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem" }}>
+                      <span className={alert.severity === "high" ? "badge badge-danger" : alert.severity === "medium" ? "badge badge-warning" : "badge badge-info"}>
+                        {alert.severity.toUpperCase()}
+                      </span>
+                      <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>{alert.time}</span>
+                    </div>
+                    <p style={{ fontSize: "0.875rem", color: "var(--text-secondary)" }}>{alert.message}</p>
                   </div>
-                  <p style={{ fontSize: "0.875rem", color: "var(--text-secondary)" }}>{alert.message}</p>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{ 
+                display: "flex", 
+                flexDirection: "column",
+                alignItems: "center", 
+                justifyContent: "center", 
+                padding: "3rem 1rem" 
+              }}>
+                <div style={{ fontSize: "3rem", marginBottom: "1rem", opacity: 0.3 }}>🔔</div>
+                <p style={{ color: "var(--text-muted)", textAlign: "center" }}>
+                  Security alerts will appear here after processing
+                </p>
+              </div>
+            )}
           </div>
         </div>
 

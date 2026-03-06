@@ -99,6 +99,17 @@ export default function UploadPage() {
 
       if (response.ok) {
         const data = await response.json();
+        
+        // Store results in localStorage for dashboard
+        try {
+          localStorage.setItem('fraudguard_results', JSON.stringify({
+            ...data,
+            processedAt: new Date().toISOString()
+          }));
+        } catch (e) {
+          // localStorage not available
+        }
+        
         setResult({
           success: true,
           message: `Dataset uploaded and processed successfully!`,

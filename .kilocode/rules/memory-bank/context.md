@@ -23,6 +23,9 @@ FraudGuard is a fintech web application for real-time fraud detection. The front
 - [x] Dark theme with blue accents
 - [x] Cleaner, refined dashboard styling matching reference design
 - [x] Fix hallucinating dashboard - use real data from uploads
+- [x] Add Clear Data button to dashboard header
+- [x] Add "Save to Database" button on Explain page
+- [x] Link transaction data from Explain page to dashboard
 
 ## Current Structure
 
@@ -36,6 +39,14 @@ FraudGuard is a fintech web application for real-time fraud detection. The front
 | `src/app/globals.css` | Custom styling | ✅ Complete |
 | `.kilocode/` | AI context & recipes | ✅ Ready |
 
+## How to Use the Application
+
+1. **Upload Dataset**: Go to `/upload` to upload a CSV file of transactions
+2. **Analyze Transaction**: Go to `/explain`, enter a transaction ID, click "Explain"
+3. **Save to Database**: Click "Save to Database" after analyzing to store for future predictions
+4. **View Dashboard**: See the latest analyzed transaction on the dashboard
+5. **Clear Data**: Click "Clear Data" button to reset all stored data
+
 ## ML Backend Integration
 
 The frontend connects to the ML service at:
@@ -48,10 +59,10 @@ The frontend connects to the ML service at:
 
 ## Data Flow
 
-1. User uploads CSV dataset on `/upload` page
-2. ML service processes the dataset via `/process-dataset` endpoint
-3. Results are stored in localStorage
-4. Dashboard displays actual processed data instead of hallucinated demo data
+1. User uploads CSV dataset on `/upload` page → ML processes it → Results stored in localStorage
+2. User analyzes transaction on `/explain` page → Can save to database (localStorage)
+3. Dashboard displays: processed dataset stats + latest analyzed transaction
+4. Clear Data button resets everything
 
 ## Deployment
 
@@ -69,3 +80,4 @@ The frontend connects to the ML service at:
 | 2026-03-06 | Dark theme with blue accents, glassmorphism, and grid overlay |
 | 2026-03-06 | Cleaner dashboard styling to match reference design |
 | 2026-03-06 | Fixed hallucinating dashboard - removed hardcoded fake data |
+| 2026-03-06 | Added Clear Data button and Save to Database features |

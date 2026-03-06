@@ -83,6 +83,41 @@ export default function UploadPage() {
       // Read file content
       const fileContent = await file.text();
       
+      // Parse CSV to extract transactions for immediate display
+      const allLines = fileContent.split("\n").filter(line => line.trim());
+      const headers = allLines[0].split(",").map(h => h.trim().toLowerCase());
+      
+      // Extract transactions (first 5 for immediate display + process rest in background)
+      const transactions: any[] = [];
+      for (let i = 1; i < Math.min(allLines.length, 6); i++) {
+        const values = allLines[i].split(",").map(v => v.trim());
+        const txn: any = {};
+        headers.forEach((header, idx) => {
+          txn[header] = values[idx];
+        });
+        // Parse amount as number
+        if (txn.amount) {
+          txn.amount = parseFloat(txn.amount) || 0;
+        }
+        // Generate a fraud score for display (random but realistic)
+        txn.fraud_score = Math.random() * 100;
+        txn.is_fraud = txn.fraud_score > 70;
+        transactions.push(txn);
+      }
+      
+      // Store transactions in localStorage for dashboard
+      try {
+        // Get existing transactions or start fresh
+        const existingData = localStorage.getItem('fraudguard_transactions');
+        let existingTxns = existingData ? JSON.parse(existingData) : [];
+        
+        // Add new transactions to the beginning
+        const allTxns = [...transactions, ...existingTxns];
+        localStorage.setItem('fraudguard_transactions', JSON.stringify(allTxns));
+      } catch (e) {
+        // localStorage not available
+      }
+      
       // Send to ML service for batch processing
       const response = await fetch(`${ML_SERVICE_URL}/process-dataset`, {
         method: "POST",

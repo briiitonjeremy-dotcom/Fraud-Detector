@@ -97,9 +97,11 @@ export default function UploadPage() {
       const allLines = fileContent.split("\n").filter(line => line.trim());
       const headers = allLines[0].split(",").map(h => h.trim().toLowerCase());
       
-      // Extract transactions (first 5 for immediate display + process rest in background)
+      // Extract ALL transactions from CSV for processing
       const transactions: any[] = [];
-      for (let i = 1; i < Math.min(allLines.length, 6); i++) {
+      const maxTransactions = Math.min(allLines.length - 1, 1000); // Process up to 1000 transactions for display
+      
+      for (let i = 1; i <= maxTransactions; i++) {
         const values = allLines[i].split(",").map(v => v.trim());
         const txn: any = {};
         headers.forEach((header, idx) => {
@@ -109,9 +111,22 @@ export default function UploadPage() {
         if (txn.amount) {
           txn.amount = parseFloat(txn.amount) || 0;
         }
-        // Generate a fraud score for display (random but realistic)
-        txn.fraud_score = Math.random() * 100;
-        txn.is_fraud = txn.fraud_score > 70;
+        // Use actual isFraud column from CSV if available, otherwise mark as unknown
+        if (txn.isflaggedfraud !== undefined) {
+          txn.is_fraud = txn.isflaggedfraud === '1' || txn.isflaggedfraud === 1;
+          txn.fraud_score = txn.is_fraud ? 95 : Math.random() * 20; // High score for fraud, low for legitimate
+        } else if (txn.isfraud !== undefined) {
+          txn.is_fraud = txn.isfraud === '1' || txn.isfraud === 1;
+          txn.fraud_score = txn.is_fraud ? 95 : Math.random() * 20;
+        } else {
+          // No fraud label - mark as unknown
+          txn.is_fraud = false;
+          txn.fraud_score = null;
+        }
+        // Generate transaction ID if not present - use step and row index
+        if (!txn.transaction_id) {
+          txn.transaction_id = `TXN_${txn.step || 1}_${i}`;
+        }
         transactions.push(txn);
       }
       

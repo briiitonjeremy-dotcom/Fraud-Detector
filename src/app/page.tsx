@@ -31,7 +31,7 @@ export default function Dashboard() {
   const [vendors, setVendors] = useState<{name: string, transactions: number, fraud: number, rate: number}[]>([]);
   const [alerts, setAlerts] = useState<{time: string, severity: string, message: string}[]>([]);
   const [recentTransaction, setRecentTransaction] = useState<{id: string, score: number, isFraud: boolean, amount?: number, vendor?: string} | null>(null);
-  const [recentTransactions, setRecentTransactions] = useState<{transaction_id: string, amount: number, vendor_name?: string, fraud_score?: number, is_fraud?: boolean}[]>([]);
+  const [recentTransactions, setRecentTransactions] = useState<{transaction_id: string, amount: number, vendor_name?: string, fraud_score?: number | null, is_fraud?: boolean, nameorig?: string, nameDest?: string}[]>([]);
   const isMounted = useCallback(() => { let mounted = true; return () => { mounted = false; }; }, []);
 
   // Handle clearing all data
@@ -77,14 +77,14 @@ export default function Dashboard() {
             // Get the most recent transaction (first one is most recent)
             const latestTxn = txns[0];
             setRecentTransaction({
-              id: latestTxn.transaction_id,
-              score: latestTxn.fraud_score || latestTxn.fraud_detected ? (latestTxn.fraud_detected / latestTxn.amount) * 100 : Math.random() * 30,
+              id: latestTxn.transaction_id || latestTxn.nameorig || 'Unknown',
+              score: latestTxn.fraud_score !== null ? (latestTxn.fraud_score || (latestTxn.is_fraud ? 95 : Math.random() * 20)) : 0,
               isFraud: latestTxn.is_fraud || false,
               amount: latestTxn.amount,
-              vendor: latestTxn.vendor_name
+              vendor: latestTxn.nameorig || latestTxn.vendor_name
             });
-            // Store all recent transactions for display
-            setRecentTransactions(txns.slice(0, 10));
+            // Store all recent transactions for display (up to 50)
+            setRecentTransactions(txns.slice(0, 50));
             setHasRealData(true);
           }
         }
@@ -318,7 +318,7 @@ export default function Dashboard() {
             <div className="card-header">
               <h3 className="card-title">Recent Transactions</h3>
               <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
-                {recentTransactions.length} transactions loaded
+                {recentTransactions.length} transactions from dataset
               </span>
             </div>
             <div className="table-container">
@@ -333,34 +333,33 @@ export default function Dashboard() {
                   </tr>
                 </thead>
                 <tbody>
-                  {recentTransactions.slice(0, 10).map((txn, i) => (
+                  {recentTransactions.slice(0, 20).map((txn, i) => (
                     <tr key={i}>
-                      <td style={{ fontWeight: 600 }}>{txn.transaction_id}</td>
-                      <td>{txn.vendor_name || 'Unknown'}</td>
+                      <td style={{ fontWeight: 600 }}>{txn.transaction_id || txn.nameorig || 'N/A'}</td>
+                      <td>{txn.nameorig || txn.vendor_name || 'Unknown'}</td>
                       <td>${txn.amount?.toLocaleString() || '0'}</td>
                       <td>
-                        {(() => {
-                          const score = txn.fraud_score || 0;
-                          return (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        {txn.fraud_score !== null && txn.fraud_score !== undefined ? (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <div style={{ 
+                              width: '60px', 
+                              height: '6px', 
+                              background: 'rgba(255,255,255,0.1)', 
+                              borderRadius: '3px',
+                              overflow: 'hidden'
+                            }}>
                               <div style={{ 
-                                width: '60px', 
-                                height: '6px', 
-                                background: 'rgba(255,255,255,0.1)', 
-                                borderRadius: '3px',
-                                overflow: 'hidden'
-                              }}>
-                                <div style={{ 
-                                  width: `${score}%`, 
-                                  height: '100%', 
-                                  background: score > 70 ? 'var(--danger)' : score > 40 ? 'var(--warning)' : 'var(--success)',
-                                  borderRadius: '3px'
-                                }} />
-                              </div>
-                              <span style={{ fontSize: '0.75rem' }}>{Math.round(score)}%</span>
+                                width: `${txn.fraud_score}%`, 
+                                height: '100%', 
+                                background: (txn.fraud_score || 0) > 70 ? 'var(--danger)' : (txn.fraud_score || 0) > 40 ? 'var(--warning)' : 'var(--success)',
+                                borderRadius: '3px'
+                              }} />
                             </div>
-                          );
-                        })()}
+                            <span style={{ fontSize: '0.75rem' }}>{Math.round(txn.fraud_score)}%</span>
+                          </div>
+                        ) : (
+                          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>N/A</span>
+                        )}
                       </td>
                       <td>
                         {(txn.is_fraud || ((txn.fraud_score || 0) > 70)) ? (

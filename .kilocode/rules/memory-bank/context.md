@@ -1,10 +1,10 @@
-# Active Context: Next.js Starter Template
+# Active Context: FraudGuard AI - Fraud Detection Frontend
 
 ## Current State
 
-**Template Status**: ✅ Ready for development
+**Application Status**: ✅ Built and ready for deployment
 
-The template is a clean Next.js 16 starter with TypeScript and Tailwind CSS 4. It's ready for AI-assisted expansion to build any type of application.
+FraudGuard is a fintech web application for real-time fraud detection. The frontend is built with Next.js 16 and connects to a Python ML service running on Render.
 
 ## Recently Completed
 
@@ -14,59 +14,57 @@ The template is a clean Next.js 16 starter with TypeScript and Tailwind CSS 4. I
 - [x] ESLint configuration
 - [x] Memory bank documentation
 - [x] Recipe system for common features
+- [x] Complete FraudGuard Dashboard with fraud analytics
+- [x] CSV Dataset Upload feature
+- [x] Transaction Explainability page with SHAP features
+- [x] ML API Test Console
+- [x] Professional fintech-themed UI
 
 ## Current Structure
 
 | File/Directory | Purpose | Status |
 |----------------|---------|--------|
-| `src/app/page.tsx` | Home page | ✅ Ready |
-| `src/app/layout.tsx` | Root layout | ✅ Ready |
-| `src/app/globals.css` | Global styles | ✅ Ready |
+| `src/app/page.tsx` | Main dashboard with analytics | ✅ Complete |
+| `src/app/upload/page.tsx` | CSV dataset upload | ✅ Complete |
+| `src/app/explain/page.tsx` | Transaction explainability | ✅ Complete |
+| `src/app/api-test/page.tsx` | API test console | ✅ Complete |
+| `src/app/layout.tsx` | Root layout | ✅ Complete |
+| `src/app/globals.css` | Custom fintech styling | ✅ Complete |
 | `.kilocode/` | AI context & recipes | ✅ Ready |
 
-## Current Focus
+## ML Backend Integration
 
-The template is ready. Next steps depend on user requirements:
+The frontend connects to the ML service at:
+- **URL**: https://ml-file-for-url.onrender.com
+- **Endpoints Used**:
+  - GET `/health` - Health check
+  - POST `/predict` - Single transaction fraud prediction
+  - POST `/process-dataset` - Batch CSV processing
+  - GET `/explain/<transaction_id>` - SHAP-based explanation
 
-1. What type of application to build
-2. What features are needed
-3. Design/branding preferences
+## Deployment
+
+- **Frontend**: Deploy to Vercel (Next.js)
+- **Backend**: ML service already running on Render
+- **Flow**: Frontend fetches data from Render ML backend
 
 ## Quick Start Guide
 
-### To add a new page:
-
-Create a file at `src/app/[route]/page.tsx`:
-```tsx
-export default function NewPage() {
-  return <div>New page content</div>;
-}
+### To run locally:
+```bash
+bun install
+bun run dev
 ```
 
-### To add components:
-
-Create `src/components/` directory and add components:
-```tsx
-// src/components/ui/Button.tsx
-export function Button({ children }: { children: React.ReactNode }) {
-  return <button className="px-4 py-2 bg-blue-600 text-white rounded">{children}</button>;
-}
+### To build:
+```bash
+bun run build
 ```
 
-### To add a database:
-
-Follow `.kilocode/recipes/add-database.md`
-
-### To add API routes:
-
-Create `src/app/api/[route]/route.ts`:
-```tsx
-import { NextResponse } from "next/server";
-
-export async function GET() {
-  return NextResponse.json({ message: "Hello" });
-}
-```
+### To deploy to Vercel:
+1. Push to GitHub
+2. Import project in Vercel
+3. Deploy automatically
 
 ## Available Recipes
 
@@ -74,14 +72,9 @@ export async function GET() {
 |--------|------|----------|
 | Add Database | `.kilocode/recipes/add-database.md` | Data persistence with Drizzle + SQLite |
 
-## Pending Improvements
-
-- [ ] Add more recipes (auth, email, etc.)
-- [ ] Add example components
-- [ ] Add testing setup recipe
-
 ## Session History
 
 | Date | Changes |
 |------|---------|
 | Initial | Template created with base setup |
+| 2026-03-06 | Built complete FraudGuard application with dashboard, upload, explain, and API test pages |

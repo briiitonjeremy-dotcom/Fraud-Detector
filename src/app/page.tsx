@@ -32,6 +32,8 @@ export default function Dashboard() {
   const [alerts, setAlerts] = useState<{time: string, severity: string, message: string}[]>([]);
   const [recentTransaction, setRecentTransaction] = useState<{id: string, score: number, isFraud: boolean, amount?: number, vendor?: string} | null>(null);
   const [recentTransactions, setRecentTransactions] = useState<{transaction_id: string, amount: number, vendor_name?: string, fraud_score?: number | null, is_fraud?: boolean, nameorig?: string, nameDest?: string}[]>([]);
+  const [savedFraudCases, setSavedFraudCases] = useState<{transaction_id: string, amount: number, fraud_score: number, savedAt: string, nameorig?: string, nameDest?: string}[]>([]);
+  const [saveStatus, setSaveStatus] = useState<{saving: boolean, message: string}>({saving: false, message: ""});
   const isMounted = useCallback(() => { let mounted = true; return () => { mounted = false; }; }, []);
 
   // Handle clearing all data
@@ -39,6 +41,7 @@ export default function Dashboard() {
     if (confirm("Are you sure you want to clear all stored data? This will remove all processed datasets and transaction history.")) {
       localStorage.removeItem('fraudguard_results');
       localStorage.removeItem('fraudguard_transactions');
+      localStorage.removeItem('fraudguard_fraud_cases');
       setStats(defaultStats);
       setVendors([]);
       setAlerts([]);
@@ -46,6 +49,57 @@ export default function Dashboard() {
       setProcessedAt("");
       setRecentTransaction(null);
       setRecentTransactions([]);
+      setSavedFraudCases([]);
+    }
+  };
+
+  // Save high-risk transactions (fraud probability > 50%) to database
+  const handleSaveToDatabase = async () => {
+    if (recentTransactions.length === 0) {
+      setSaveStatus({saving: false, message: "No transactions to save"});
+      return;
+    }
+    
+    setSaveStatus({saving: true, message: ""});
+    
+    try {
+      // Filter transactions with fraud probability > 50%
+      const highRiskTransactions = recentTransactions.filter(txn => 
+        (txn.fraud_score !== null && txn.fraud_score !== undefined && txn.fraud_score > 50) || 
+        txn.is_fraud === true
+      );
+      
+      if (highRiskTransactions.length === 0) {
+        setSaveStatus({saving: false, message: "No high-risk transactions (>50% fraud probability) found"});
+        return;
+      }
+      
+      // Get existing saved cases
+      const existingCases = localStorage.getItem('fraudguard_fraud_cases');
+      const existingCasesArray = existingCases ? JSON.parse(existingCases) : [];
+      
+      // Create new fraud cases with timestamp
+      const newFraudCases = highRiskTransactions.map(txn => ({
+        transaction_id: txn.transaction_id || txn.nameorig || `TXN_${Date.now()}`,
+        amount: txn.amount || 0,
+        fraud_score: txn.fraud_score || (txn.is_fraud ? 95 : 0),
+        savedAt: new Date().toISOString(),
+        nameorig: txn.nameorig,
+        nameDest: txn.nameDest
+      }));
+      
+      // Merge with existing cases (avoid duplicates)
+      const existingIds = new Set(existingCasesArray.map((c: any) => c.transaction_id));
+      const uniqueNewCases = newFraudCases.filter((c: any) => !existingIds.has(c.transaction_id));
+      const allCases = [...existingCasesArray, ...uniqueNewCases];
+      
+      // Save to localStorage (acts as our database)
+      localStorage.setItem('fraudguard_fraud_cases', JSON.stringify(allCases));
+      setSavedFraudCases(allCases);
+      
+      setSaveStatus({saving: false, message: `Successfully saved ${uniqueNewCases.length} high-risk transaction(s) to database!`});
+    } catch (error) {
+      setSaveStatus({saving: false, message: "Error saving transactions to database"});
     }
   };
 
@@ -87,6 +141,13 @@ export default function Dashboard() {
             setRecentTransactions(txns.slice(0, 50));
             setHasRealData(true);
           }
+        }
+        
+        // Load saved fraud cases from database
+        const savedFraudCasesData = localStorage.getItem('fraudguard_fraud_cases');
+        if (savedFraudCasesData && mounted) {
+          const cases = JSON.parse(savedFraudCasesData);
+          setSavedFraudCases(cases);
         }
       } catch (e) {
         // localStorage not available or parse error
@@ -187,17 +248,43 @@ export default function Dashboard() {
               </span>
             </div>
             {hasRealData && (
-              <button 
-                onClick={handleClearData}
-                className="btn btn-secondary"
-                style={{ padding: "0.5rem 1rem", fontSize: "0.875rem" }}
-                title="Clear all stored data"
-              >
-                🗑 Clear Data
-              </button>
+              <div style={{ display: 'flex', gap: '0.75rem' }}>
+                <button 
+                  onClick={handleSaveToDatabase}
+                  className="btn btn-primary"
+                  style={{ padding: "0.5rem 1rem", fontSize: "0.875rem" }}
+                  disabled={saveStatus.saving}
+                  title="Save high-risk transactions (>50% fraud probability) to database"
+                >
+                  {saveStatus.saving ? '⏳ Saving...' : '💾 Save to Database'}
+                </button>
+                <button 
+                  onClick={handleClearData}
+                  className="btn btn-secondary"
+                  style={{ padding: "0.5rem 1rem", fontSize: "0.875rem" }}
+                  title="Clear all stored data"
+                >
+                  🗑 Clear Data
+                </button>
+              </div>
             )}
           </div>
         </div>
+        
+        {/* Save Status Message */}
+        {saveStatus.message && (
+          <div style={{ 
+            marginTop: '1rem', 
+            padding: '0.75rem 1rem', 
+            background: saveStatus.message.includes('Successfully') ? 'rgba(16, 185, 129, 0.1)' : 'rgba(245, 158, 11, 0.1)',
+            border: `1px solid ${saveStatus.message.includes('Successfully') ? 'rgba(16, 185, 129, 0.3)' : 'rgba(245, 158, 11, 0.3)'}`,
+            borderRadius: '8px',
+            color: saveStatus.message.includes('Successfully') ? 'var(--success)' : 'var(--warning)',
+            fontSize: '0.875rem'
+          }}>
+            {saveStatus.message}
+          </div>
+        )}
 
         {/* Stats Grid */}
         <div className="stats-grid">
@@ -367,6 +454,64 @@ export default function Dashboard() {
                         ) : (
                           <span className="badge badge-success">LEGITIMATE</span>
                         )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Saved Fraud Cases (Database) */}
+        {savedFraudCases.length > 0 && (
+          <div className="card" style={{ marginBottom: "1.5rem", border: '1px solid rgba(239, 68, 68, 0.3)' }}>
+            <div className="card-header">
+              <h3 className="card-title" style={{ color: 'var(--danger)' }}>🚫 Saved Fraud Cases (Database)</h3>
+              <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                {savedFraudCases.length} high-risk transaction(s) stored
+              </span>
+            </div>
+            <div className="table-container">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Transaction ID</th>
+                    <th>From</th>
+                    <th>To</th>
+                    <th>Amount</th>
+                    <th>Fraud Score</th>
+                    <th>Saved At</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {savedFraudCases.slice(0, 20).map((txn, i) => (
+                    <tr key={i}>
+                      <td style={{ fontWeight: 600, color: 'var(--danger)' }}>{txn.transaction_id}</td>
+                      <td>{txn.nameorig || 'Unknown'}</td>
+                      <td>{txn.nameDest || 'Unknown'}</td>
+                      <td>${txn.amount?.toLocaleString() || '0'}</td>
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <div style={{ 
+                            width: '60px', 
+                            height: '6px', 
+                            background: 'rgba(255,255,255,0.1)', 
+                            borderRadius: '3px',
+                            overflow: 'hidden'
+                          }}>
+                            <div style={{ 
+                              width: `${txn.fraud_score}%`, 
+                              height: '100%', 
+                              background: 'var(--danger)',
+                              borderRadius: '3px'
+                            }} />
+                          </div>
+                          <span style={{ fontSize: '0.75rem', color: 'var(--danger)' }}>{Math.round(txn.fraud_score)}%</span>
+                        </div>
+                      </td>
+                      <td style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                        {new Date(txn.savedAt).toLocaleString()}
                       </td>
                     </tr>
                   ))}

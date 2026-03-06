@@ -22,6 +22,7 @@ FraudGuard is a fintech web application for real-time fraud detection. The front
 - [x] Enhanced UI with polished fintech aesthetic
 - [x] Dark theme with blue accents
 - [x] Cleaner, refined dashboard styling matching reference design
+- [x] Fix hallucinating dashboard - use real data from uploads
 
 ## Current Structure
 
@@ -45,35 +46,18 @@ The frontend connects to the ML service at:
   - POST `/process-dataset` - Batch CSV processing
   - GET `/explain/<transaction_id>` - SHAP-based explanation
 
+## Data Flow
+
+1. User uploads CSV dataset on `/upload` page
+2. ML service processes the dataset via `/process-dataset` endpoint
+3. Results are stored in localStorage
+4. Dashboard displays actual processed data instead of hallucinated demo data
+
 ## Deployment
 
 - **Frontend**: Deploy to Vercel (Next.js)
 - **Backend**: ML service already running on Render
 - **Flow**: Frontend fetches data from Render ML backend
-
-## Quick Start Guide
-
-### To run locally:
-```bash
-bun install
-bun run dev
-```
-
-### To build:
-```bash
-bun run build
-```
-
-### To deploy to Vercel:
-1. Push to GitHub
-2. Import project in Vercel
-3. Deploy automatically
-
-## Available Recipes
-
-| Recipe | File | Use Case |
-|--------|------|----------|
-| Add Database | `.kilocode/recipes/add-database.md` | Data persistence with Drizzle + SQLite |
 
 ## Session History
 
@@ -84,3 +68,4 @@ bun run build
 | 2026-03-06 | Enhanced UI aesthetic with professional fintech theme (gradients, shadows, glows) |
 | 2026-03-06 | Dark theme with blue accents, glassmorphism, and grid overlay |
 | 2026-03-06 | Cleaner dashboard styling to match reference design |
+| 2026-03-06 | Fixed hallucinating dashboard - removed hardcoded fake data |

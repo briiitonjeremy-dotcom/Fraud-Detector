@@ -19,8 +19,9 @@ FraudGuard is a fintech web application for real-time fraud detection. The front
 - [x] Transaction Explainability page with SHAP features
 - [x] ML API Test Console
 - [x] Professional fintech-themed UI
-- [x] Enhanced UI with polished fintech aesthetic (gradients, shadows, glows)
-- [x] Dark theme with cyan/gold accents and glassmorphism effects
+- [x] Enhanced UI with polished fintech aesthetic
+- [x] Dark theme with blue accents
+- [x] Cleaner, refined dashboard styling matching reference design
 
 ## Current Structure
 
@@ -31,7 +32,7 @@ FraudGuard is a fintech web application for real-time fraud detection. The front
 | `src/app/explain/page.tsx` | Transaction explainability | ✅ Complete |
 | `src/app/api-test/page.tsx` | API test console | ✅ Complete |
 | `src/app/layout.tsx` | Root layout | ✅ Complete |
-| `src/app/globals.css` | Custom fintech styling | ✅ Complete |
+| `src/app/globals.css` | Custom styling | ✅ Complete |
 | `.kilocode/` | AI context & recipes | ✅ Ready |
 
 ## ML Backend Integration
@@ -80,5 +81,6 @@ bun run build
 |------|---------|
 | Initial | Template created with base setup |
 | 2026-03-06 | Built complete FraudGuard application with dashboard, upload, explain, and API test pages |
-| 2026-03-06 | Enhanced UI aesthetic with professional fintech theme (gradients, shadows, glows)
-| 2026-03-06 | Dark theme with cyan/gold accents, glassmorphism, and grid overlay
+| 2026-03-06 | Enhanced UI aesthetic with professional fintech theme (gradients, shadows, glows) |
+| 2026-03-06 | Dark theme with blue accents, glassmorphism, and grid overlay |
+| 2026-03-06 | Cleaner dashboard styling to match reference design |

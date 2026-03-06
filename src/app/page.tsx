@@ -8,10 +8,10 @@ const ML_SERVICE_URL = "https://ml-file-for-url.onrender.com";
 
 // Navigation items
 const navItems = [
-  { href: "/", icon: "📊", label: "Dashboard", active: true },
-  { href: "/upload", icon: "📤", label: "Upload Dataset", active: false },
-  { href: "/explain", icon: "🔍", label: "Explain", active: false },
-  { href: "/api-test", icon: "🧪", label: "API Test", active: false },
+  { href: "/", icon: "⬡", label: "Dashboard", active: true },
+  { href: "/upload", icon: "⇪", label: "Upload Dataset", active: false },
+  { href: "/explain", icon: "⟁", label: "Explain", active: false },
+  { href: "/api-test", icon: "⚡", label: "API Test", active: false },
 ];
 
 // Demo data for when ML service is unavailable
@@ -87,7 +87,7 @@ export default function Dashboard() {
       {/* Sidebar */}
       <aside className="sidebar">
         <div className="sidebar-logo">
-          <div className="sidebar-logo-icon">🛡️</div>
+          <div className="sidebar-logo-icon">🛡</div>
           <h1>FraudGuard</h1>
         </div>
         
@@ -103,61 +103,97 @@ export default function Dashboard() {
             </Link>
           ))}
         </nav>
+
+        {/* Sidebar Footer */}
+        <div style={{ marginTop: "auto", paddingTop: "2rem" }}>
+          <div style={{ 
+            padding: "1rem", 
+            background: "rgba(6, 182, 212, 0.1)", 
+            borderRadius: "12px", 
+            border: "1px solid rgba(6, 182, 212, 0.2)"
+          }}>
+            <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.5rem" }}>ML BACKEND</div>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              <span style={{ 
+                width: "8px", 
+                height: "8px", 
+                borderRadius: "50%", 
+                background: mlStatus === "online" ? "var(--success)" : mlStatus === "loading" ? "var(--warning)" : "var(--danger)",
+                boxShadow: mlStatus === "online" ? "0 0 8px var(--success)" : "none"
+              }} />
+              <span style={{ fontSize: "0.875rem", color: "var(--text-secondary)" }}>
+                {mlStatus === "online" ? "Connected" : mlStatus === "loading" ? "Connecting..." : "Disconnected"}
+              </span>
+            </div>
+          </div>
+        </div>
       </aside>
 
       {/* Main Content */}
       <main className="main-content">
+        {/* Header */}
         <div className="page-header">
-          <h1 className="page-title">Fraud Detection Dashboard</h1>
-          <p className="page-subtitle">Real-time monitoring and analytics for financial transactions</p>
-        </div>
-
-        {/* Status Banner */}
-        <div className="card" style={{ marginBottom: "1.5rem", padding: "1rem" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
-              <span style={{ 
-                width: "12px", 
-                height: "12px", 
-                borderRadius: "50%", 
-                background: mlStatus === "online" ? "#10b981" : mlStatus === "loading" ? "#f59e0b" : "#ef4444",
-                boxShadow: mlStatus === "online" ? "0 0 10px #10b981" : "none"
-              }} />
-              <span>
-                ML Service: <strong>{mlStatus === "online" ? "Active" : mlStatus === "loading" ? "Checking..." : "Offline"}</strong>
-                {mlStatus === "online" && lastUpdate && <span style={{ color: "var(--text-muted)" }}> • Last update: {lastUpdate}</span>}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+            <div>
+              <h1 className="page-title">Fraud Detection Dashboard</h1>
+              <p className="page-subtitle">Real-time monitoring and analytics for financial transactions</p>
+            </div>
+            <div style={{ 
+              display: "flex", 
+              alignItems: "center", 
+              gap: "0.75rem",
+              padding: "0.5rem 1rem",
+              background: "rgba(39, 39, 42, 0.6)",
+              backdropFilter: "blur(10px)",
+              borderRadius: "12px",
+              border: "1px solid rgba(63, 63, 70, 0.5)"
+            }}>
+              <span style={{ fontSize: "1.25rem" }}>◷</span>
+              <span style={{ fontSize: "0.875rem", color: "var(--text-secondary)" }}>
+                {new Date().toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
               </span>
             </div>
-            <span style={{ fontSize: "0.875rem", color: "var(--text-secondary)" }}>
-              Backend: {ML_SERVICE_URL}
-            </span>
           </div>
         </div>
 
         {/* Stats Grid */}
         <div className="stats-grid">
           <div className="stat-card">
-            <div className="stat-icon blue">📊</div>
+            <div className="stat-icon blue">⬡</div>
             <div className="stat-label">Total Transactions</div>
             <div className="stat-value">{stats.totalTransactions.toLocaleString()}</div>
+            <div className="stat-change positive" style={{ marginTop: "0.75rem", fontSize: "0.75rem", color: "var(--success-light)" }}>
+              ▲ 12.5% from last week
+            </div>
           </div>
           
           <div className="stat-card">
-            <div className="stat-icon red">🚨</div>
+            <div className="stat-icon red">⚠</div>
             <div className="stat-label">Fraud Detected</div>
             <div className="stat-value">{stats.fraudDetected.toLocaleString()}</div>
+            <div className="stat-change negative" style={{ marginTop: "0.75rem", fontSize: "0.75rem", color: "var(--danger-light)" }}>
+              ▼ 3.2% from last week
+            </div>
           </div>
           
           <div className="stat-card">
-            <div className="stat-icon gold">📈</div>
+            <div className="stat-icon gold">◧</div>
             <div className="stat-label">Fraud Rate</div>
             <div className="stat-value">{stats.fraudRate}%</div>
+            <div className="stat-change negative" style={{ marginTop: "0.75rem", fontSize: "0.75rem", color: "var(--warning-light)" }}>
+              ▼ 0.8% from last week
+            </div>
           </div>
           
           <div className="stat-card">
-            <div className="stat-icon green">🎯</div>
+            <div className="stat-icon green">◎</div>
             <div className="stat-label">Risk Score</div>
             <div className="stat-value">{stats.riskScore}</div>
+            <div style={{ marginTop: "0.75rem" }}>
+              <span className={stats.riskScore > 70 ? "badge badge-danger" : stats.riskScore > 40 ? "badge badge-warning" : "badge badge-success"}>
+                {stats.riskScore > 70 ? "HIGH RISK" : stats.riskScore > 40 ? "MEDIUM RISK" : "LOW RISK"}
+              </span>
+            </div>
           </div>
         </div>
 
@@ -167,6 +203,7 @@ export default function Dashboard() {
           <div className="card">
             <div className="card-header">
               <h3 className="card-title">Real-Time Risk Score</h3>
+              <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>Live</span>
             </div>
             <div style={{ display: "flex", justifyContent: "center", padding: "1rem" }}>
               <div className="risk-gauge">
@@ -190,6 +227,10 @@ export default function Dashboard() {
           <div className="card">
             <div className="card-header">
               <h3 className="card-title">Fraud Trend (Last 14 Days)</h3>
+              <div style={{ display: "flex", gap: "0.5rem" }}>
+                <span style={{ width: "12px", height: "12px", borderRadius: "50%", background: "var(--danger)" }} />
+                <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>Fraud Count</span>
+              </div>
             </div>
             <div className="chart-container">
               <div style={{ 
@@ -205,7 +246,8 @@ export default function Dashboard() {
                       width: "20px", 
                       height: `${val * 2.5}px`, 
                       background: `linear-gradient(180deg, #ef4444 0%, #f87171 100%)`,
-                      borderRadius: "4px 4px 0 0"
+                      borderRadius: "4px 4px 0 0",
+                      boxShadow: "0 -4px 12px rgba(239, 68, 68, 0.3)"
                     }} />
                     <span style={{ fontSize: "0.625rem", color: "var(--text-muted)" }}>{i + 1}</span>
                   </div>
@@ -241,7 +283,7 @@ export default function Dashboard() {
                       <td>
                         <span style={{ fontWeight: i < 3 ? 600 : 400 }}>
                           {vendor.name}
-                          {i < 3 && <span style={{ marginLeft: "0.5rem", color: "var(--danger)" }}>⚠️</span>}
+                          {i < 3 && <span style={{ marginLeft: "0.5rem", color: "var(--danger)" }}>⚠</span>}
                         </span>
                       </td>
                       <td>{vendor.transactions.toLocaleString()}</td>
@@ -268,9 +310,10 @@ export default function Dashboard() {
               {alerts.map((alert, i) => (
                 <div key={i} style={{ 
                   padding: "1rem", 
-                  background: "var(--bg-secondary)", 
+                  background: "rgba(0, 0, 0, 0.2)", 
                   borderRadius: "8px",
-                  borderLeft: `3px solid ${alert.severity === "high" ? "#ef4444" : alert.severity === "medium" ? "#f59e0b" : "#3b82f6"}`
+                  borderLeft: `3px solid ${alert.severity === "high" ? "#ef4444" : alert.severity === "medium" ? "#f59e0b" : "#3b82f6"}`,
+                  transition: "all 0.2s ease"
                 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem" }}>
                     <span className={alert.severity === "high" ? "badge badge-danger" : alert.severity === "medium" ? "badge badge-warning" : "badge badge-info"}>
@@ -290,13 +333,13 @@ export default function Dashboard() {
           <h3 style={{ marginBottom: "1rem", color: "var(--text-secondary)" }}>Quick Actions</h3>
           <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
             <Link href="/upload" className="btn btn-primary">
-              📤 Upload Dataset
+              ⇪ Upload Dataset
             </Link>
             <Link href="/explain" className="btn btn-secondary">
-              🔍 Explain Transaction
+              ⟁ Explain Transaction
             </Link>
             <Link href="/api-test" className="btn btn-secondary">
-              🧪 Test API
+              ⚡ Test API
             </Link>
           </div>
         </div>

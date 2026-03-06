@@ -108,9 +108,9 @@ export default function Dashboard() {
         <div style={{ marginTop: "auto", paddingTop: "2rem" }}>
           <div style={{ 
             padding: "1rem", 
-            background: "rgba(6, 182, 212, 0.1)", 
+            background: "rgba(59, 130, 246, 0.1)", 
             borderRadius: "12px", 
-            border: "1px solid rgba(6, 182, 212, 0.2)"
+            border: "1px solid rgba(59, 130, 246, 0.2)"
           }}>
             <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.5rem" }}>ML BACKEND</div>
             <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>

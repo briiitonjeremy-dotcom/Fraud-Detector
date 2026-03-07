@@ -43,7 +43,7 @@ FraudGuard is a fintech web application for real-time fraud detection. The front
 - [x] Show "ML Processing Offline" warning when service unavailable
 - [x] Add Clear button to Explain page to clear current result
 - [x] Add Clear button to Upload page to clear current upload and results
-- [x] Add Admin module with full user management, transaction monitoring, and reports
+- [x] Fix: Convert admin page to Server Actions to avoid node:fs client bundle issue (build now succeeds)
 
 ## Current Structure
 

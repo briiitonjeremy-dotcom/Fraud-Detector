@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 
 const ML_SERVICE_URL = "https://ml-file-for-url.onrender.com";
@@ -22,30 +22,36 @@ interface ExplainResult {
   base_value: number;
 }
 
-// Demo data for offline mode
-const demoResult: ExplainResult = {
-  success: true,
-  transaction_id: "TXN_12345",
-  fraud_score: 0.87,
-  is_fraud: true,
-  narrative: "This transaction has been flagged as HIGH RISK due to several factors: unusually high transaction amount ($12,500), transaction from a new vendor (TechGadgets Inc), location mismatch (transaction from US but user typically from EU), and time of transaction outside normal business hours. The combination of these factors significantly increases the fraud probability.",
-  base_value: 0.15,
-  features: [
-    { name: "Transaction Amount", value: 12500, impact: 0.42 },
-    { name: "Vendor Age (days)", value: 3, impact: 0.28 },
-    { name: "Location Mismatch", value: 1, impact: 0.19 },
-    { name: "Time Anomaly", value: 1, impact: 0.08 },
-    { name: "User History Score", value: 0.2, impact: -0.05 },
-    { name: "Device Trust Score", value: 0.7, impact: -0.02 },
-  ],
-};
-
 export default function ExplainPage() {
   const [transactionId, setTransactionId] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [result, setResult] = useState<ExplainResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [savedToDb, setSavedToDb] = useState(false);
+  const [mlStatus, setMlStatus] = useState<"loading" | "online" | "offline">("loading");
+
+  // Check ML service status on mount
+  useEffect(() => {
+    const checkServiceStatus = async () => {
+      try {
+        const response = await fetch(`${ML_SERVICE_URL}/health`, {
+          method: "GET",
+          headers: { "Content-Type": "application/json" },
+        });
+        if (response.ok) {
+          setMlStatus("online");
+        } else {
+          setMlStatus("offline");
+        }
+      } catch (error) {
+        setMlStatus("offline");
+      }
+    };
+
+    checkServiceStatus();
+    const interval = setInterval(checkServiceStatus, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   const handleExplain = async () => {
     if (!transactionId.trim()) {
@@ -70,55 +76,13 @@ export default function ExplainPage() {
         const data = await response.json();
         setResult(data);
       } else {
-        // Try with predict endpoint as fallback
-        const predictResponse = await fetch(`${ML_SERVICE_URL}/predict`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            transaction_id: transactionId,
-            amount: 5000,
-            vendor_id: "V001",
-            vendor_name: "Demo Vendor",
-            region: "US",
-            timestamp: new Date().toISOString(),
-          }),
-        });
-
-        if (predictResponse.ok) {
-          const predictData = await predictResponse.json();
-          setResult({
-            success: true,
-            transaction_id: transactionId,
-            fraud_score: predictData.fraud_score || 0.5,
-            is_fraud: (predictData.fraud_score || 0.5) > 0.5,
-            narrative: "This is a demo explanation. Connect to the ML service for real-time analysis.",
-            base_value: 0.15,
-            features: [
-              { name: "Transaction Amount", value: 5000, impact: 0.25 },
-              { name: "Vendor Risk Score", value: 0.6, impact: 0.15 },
-              { name: "Region Factor", value: 1, impact: 0.1 },
-            ],
-          });
-        } else {
-          setError("Transaction not found or ML service unavailable");
-        }
+        setError("Transaction not found. Please check the transaction ID and try again.");
       }
     } catch (err) {
-      // Use demo data if ML service is offline
-      setResult({
-        ...demoResult,
-        transaction_id: transactionId,
-      });
+      setError("Unable to connect to ML service. Please ensure the service is running.");
     }
 
     setIsLoading(false);
-  };
-
-  const handleDemo = () => {
-    setTransactionId("TXN_12345");
-    setResult(demoResult);
-    setError(null);
-    setSavedToDb(false);
   };
 
   // Save transaction to local storage (simulating database)
@@ -213,10 +177,11 @@ export default function ExplainPage() {
                 value={transactionId}
                 onChange={(e) => setTransactionId(e.target.value)}
                 onKeyPress={(e) => e.key === "Enter" && handleExplain()}
+                disabled={mlStatus === "offline"}
               />
               <button
                 onClick={handleExplain}
-                disabled={isLoading}
+                disabled={isLoading || mlStatus === "offline"}
                 className="btn btn-primary"
               >
                 {isLoading ? (
@@ -228,18 +193,19 @@ export default function ExplainPage() {
                   "🔍 Explain"
                 )}
               </button>
-              <button
-                onClick={handleDemo}
-                className="btn btn-gold"
-              >
-                🎯 Demo
-              </button>
             </div>
           </div>
 
           {error && (
             <div className="alert alert-error">
               {error}
+            </div>
+          )}
+
+          {/* Offline Warning */}
+          {mlStatus === "offline" && (
+            <div className="alert alert-error" style={{ marginTop: '1rem' }}>
+              ⚠️ <strong>ML Processing Offline</strong> - Explainability feature is unavailable because the ML service is not responding.
             </div>
           )}
         </div>

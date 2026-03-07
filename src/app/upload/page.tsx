@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 
 const ML_SERVICE_URL = "https://ml-file-for-url.onrender.com";
@@ -25,7 +25,31 @@ export default function UploadPage() {
   const [isUploading, setIsUploading] = useState(false);
   const [result, setResult] = useState<UploadResult | null>(null);
   const [csvData, setCsvData] = useState<string[][]>([]);
+  const [mlStatus, setMlStatus] = useState<"loading" | "online" | "offline">("loading");
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Check ML service status on mount
+  useEffect(() => {
+    const checkServiceStatus = async () => {
+      try {
+        const response = await fetch(`${ML_SERVICE_URL}/health`, {
+          method: "GET",
+          headers: { "Content-Type": "application/json" },
+        });
+        if (response.ok) {
+          setMlStatus("online");
+        } else {
+          setMlStatus("offline");
+        }
+      } catch (error) {
+        setMlStatus("offline");
+      }
+    };
+
+    checkServiceStatus();
+    const interval = setInterval(checkServiceStatus, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -184,20 +208,10 @@ export default function UploadPage() {
         });
       }
     } catch (error) {
-      // If ML service is unavailable, simulate success for demo
-      const processingTime = Date.now() - startTime;
-      
+      // ML service is unavailable - show error instead of fake data
       setResult({
-        success: true,
-        message: `Dataset uploaded successfully! Processed ${totalLines.toLocaleString()} transactions locally.`,
-        data: {
-          total_transactions: totalLines,
-          fraud_detected: Math.floor(totalLines * 0.05),
-          fraud_rate: 5.0,
-          processing_status: "completed",
-          detected_columns: detectedCols,
-        },
-        processingTime: processingTime,
+        success: false,
+        message: "ML Processing Offline - Unable to connect to the fraud detection service. Please try again later.",
       });
     }
 
@@ -355,9 +369,15 @@ export default function UploadPage() {
 
           {/* Upload Button */}
           <div style={{ marginTop: "1.5rem", display: "flex", gap: "1rem" }}>
+            {/* Offline Warning */}
+            {mlStatus === "offline" && (
+              <div className="alert alert-error" style={{ width: '100%', marginBottom: '1rem' }}>
+                ⚠️ <strong>ML Processing Offline</strong> - Upload and analyze is unavailable because the ML service is not responding.
+              </div>
+            )}
             <button
               onClick={handleUpload}
-              disabled={!file || isUploading}
+              disabled={!file || isUploading || mlStatus === "offline"}
               className="btn btn-primary"
             >
               {isUploading ? (

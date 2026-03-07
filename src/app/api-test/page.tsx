@@ -5,62 +5,6 @@ import Link from "next/link";
 
 const DEFAULT_ML_SERVICE_URL = "https://ml-file-for-url.onrender.com";
 
-// Demo responses when API is offline
-const demoResponses: Record<string, any> = {
-  "/health": {
-    status: "ok",
-    service: "fraudguard-ml",
-    demo: true,
-    message: "Demo mode - ML service is currently offline"
-  },
-  "/predict": {
-    status: "success",
-    demo: true,
-    results: [
-      {
-        transaction_id: "TXN_001",
-        fraud_score: 0.82,
-        is_fraud: true,
-        is_anomaly: true
-      },
-      {
-        transaction_id: "TXN_002",
-        fraud_score: 0.15,
-        is_fraud: false,
-        is_anomaly: false
-      },
-      {
-        transaction_id: "TXN_003",
-        fraud_score: 0.45,
-        is_fraud: false,
-        is_anomaly: false
-      }
-    ]
-  },
-  "/process-dataset": {
-    status: "success",
-    demo: true,
-    message: "Demo mode - ML service is currently offline",
-    processed: 1000,
-    fraud_detected: 127,
-    fraud_rate: 12.7
-  },
-  "/explain/TXN_001": {
-    transaction_id: "TXN_001",
-    fraud_score: 0.82,
-    is_fraud: true,
-    demo: true,
-    narrative: "This transaction has been flagged as high-risk due to unusual transaction amount for this vendor, transaction made outside of normal business hours, and multiple failed authentication attempts.",
-    top_features: [
-      { feature: "amount", impact: 0.45, direction: "high" },
-      { feature: "transaction_hour", impact: 0.32, direction: "high" },
-      { feature: "failed_attempts", impact: 0.28, direction: "high" },
-      { feature: "region_mismatch", impact: 0.18, direction: "high" },
-      { feature: "vendor_reputation", impact: 0.12, direction: "low" }
-    ]
-  }
-};
-
 interface EndpointTest {
   name: string;
   method: "GET" | "POST";
@@ -113,7 +57,6 @@ interface TestResult {
   duration: number;
   success: boolean;
   response: any;
-  isDemo?: boolean;
 }
 
 export default function ApiTestPage() {
@@ -130,8 +73,6 @@ export default function ApiTestPage() {
   const [showSettings, setShowSettings] = useState(false);
   const [serviceStatus, setServiceStatus] = useState<"checking" | "online" | "offline">("checking");
   const [lastChecked, setLastChecked] = useState<string>("");
-  const [retryCount, setRetryCount] = useState(0);
-  const [showDemoMode, setShowDemoMode] = useState(false);
 
   // Check ML service status on mount and periodically
   const checkServiceStatus = useCallback(async (silent = false) => {
@@ -154,16 +95,13 @@ export default function ApiTestPage() {
       if (response.ok) {
         setServiceStatus("online");
         setLastChecked(new Date().toLocaleTimeString());
-        setShowDemoMode(false);
         return { online: true, duration };
       } else {
         setServiceStatus("offline");
-        setShowDemoMode(true);
         return { online: false, duration };
       }
     } catch (error: any) {
       setServiceStatus("offline");
-      setShowDemoMode(true);
       return { online: false, duration: Date.now() - startTime };
     }
   }, [mlServiceUrl]);
@@ -182,7 +120,7 @@ export default function ApiTestPage() {
     return () => clearInterval(interval);
   }, [checkServiceStatus]);
 
-  const runTest = async (endpoint: EndpointTest, useDemoMode = false) => {
+  const runTest = async (endpoint: EndpointTest) => {
     setIsRunning((prev) => ({ ...prev, [endpoint.name]: true }));
 
     const startTime = Date.now();
@@ -200,29 +138,6 @@ export default function ApiTestPage() {
 
       if (endpoint.method === "POST" && endpoint.requestBody) {
         options.body = JSON.stringify(endpoint.requestBody);
-      }
-
-      // If demo mode, use demo response
-      if (useDemoMode || showDemoMode) {
-        await new Promise(resolve => setTimeout(resolve, 500)); // Simulate network delay
-        const demoResponse = demoResponses[endpoint.path] || { error: "No demo response available" };
-        
-        const result: TestResult = {
-          endpoint: endpoint.name,
-          status: 200,
-          duration: Date.now() - startTime,
-          success: true,
-          response: demoResponse,
-          isDemo: true
-        };
-
-        setResults((prev) => {
-          const filtered = prev.filter((r) => r.endpoint !== endpoint.name);
-          return [...filtered, result];
-        });
-        
-        setIsRunning((prev) => ({ ...prev, [endpoint.name]: false }));
-        return;
       }
 
       const response = await fetch(url, options);
@@ -243,20 +158,12 @@ export default function ApiTestPage() {
         response: responseData,
       };
 
-      // If failed, show option to use demo mode
-      if (!response.ok) {
-        setShowDemoMode(true);
-      }
-
       setResults((prev) => {
         const filtered = prev.filter((r) => r.endpoint !== endpoint.name);
         return [...filtered, result];
       });
     } catch (error: any) {
       const duration = Date.now() - startTime;
-      
-      // Check if it's a network error that should trigger demo mode
-      const isNetworkError = error.name === "AbortError" || error.message.includes("fetch");
       
       const result: TestResult = {
         endpoint: endpoint.name,
@@ -265,7 +172,7 @@ export default function ApiTestPage() {
         success: false,
         response: { 
           error: error.name === "AbortError" ? "Request timeout" : (error.message || "Network error"),
-          hint: isNetworkError ? "ML service may be offline. Try using Demo Mode." : undefined
+          hint: "ML service is offline. Please try again later."
         },
       };
 
@@ -273,39 +180,14 @@ export default function ApiTestPage() {
         const filtered = prev.filter((r) => r.endpoint !== endpoint.name);
         return [...filtered, result];
       });
-
-      // If network error, offer demo mode
-      if (isNetworkError) {
-        setShowDemoMode(true);
-      }
     }
 
     setIsRunning((prev) => ({ ...prev, [endpoint.name]: false }));
   };
 
-  const runTestWithRetry = async (endpoint: EndpointTest, autoRetry = false) => {
-    if (!autoRetry) {
-      await runTest(endpoint, false);
-      return;
-    }
-
-    // Auto retry logic
-    setRetryCount(1);
-    await runTest(endpoint, false);
-    
-    // If failed and autoRetry is true, retry after 3 seconds
-    const result = results.find(r => r.endpoint === endpoint.name);
-    if (result && !result.success && retryCount < 3) {
-      setTimeout(async () => {
-        setRetryCount(prev => prev + 1);
-        await runTest(endpoint, false);
-      }, 3000);
-    }
-  };
-
-  const runAllTests = async (useDemo = false) => {
+  const runAllTests = async () => {
     for (const endpoint of endpoints) {
-      await runTest(endpoint, useDemo);
+      await runTest(endpoint);
     }
   };
 
@@ -322,10 +204,6 @@ export default function ApiTestPage() {
   const saveUrl = () => {
     localStorage.setItem('fraudguard_api_url', mlServiceUrl);
     checkServiceStatus();
-  };
-
-  const toggleDemoMode = () => {
-    setShowDemoMode(!showDemoMode);
   };
 
   return (
@@ -369,7 +247,7 @@ export default function ApiTestPage() {
             <span className="status-text">
               {serviceStatus === "checking" && "Checking ML service status..."}
               {serviceStatus === "online" && "ML Service Connected"}
-              {serviceStatus === "offline" && "ML Service Unreachable"}
+              {serviceStatus === "offline" && "ML Service Offline"}
             </span>
             {lastChecked && (
               <span className="status-time">Last checked: {lastChecked}</span>
@@ -385,18 +263,15 @@ export default function ApiTestPage() {
           </div>
         </div>
 
-        {/* Demo Mode Banner */}
-        {showDemoMode && (
-          <div className="demo-banner">
+        {/* Offline Warning Banner */}
+        {serviceStatus === "offline" && (
+          <div className="demo-banner" style={{ background: 'rgba(239, 68, 68, 0.15)', borderColor: 'rgba(239, 68, 68, 0.3)' }}>
             <div className="demo-info">
-              <span className="demo-icon">🎭</span>
+              <span className="demo-icon">⚠️</span>
               <span className="demo-text">
-                <strong>Demo Mode Active</strong> - Using simulated responses because ML service is offline
+                <strong>ML Service Offline</strong> - Unable to connect to fraud detection service
               </span>
             </div>
-            <button onClick={() => runAllTests(true)} className="btn btn-demo">
-              Run Tests in Demo Mode
-            </button>
           </div>
         )}
 
@@ -448,11 +323,8 @@ export default function ApiTestPage() {
               </code>
             </div>
             <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
-              <button onClick={() => runAllTests(false)} className="btn btn-primary">
+              <button onClick={() => runAllTests()} className="btn btn-primary" disabled={serviceStatus === "offline"}>
                 🚀 Run All Tests
-              </button>
-              <button onClick={() => runAllTests(true)} className="btn btn-secondary">
-                🎭 Run Demo Mode
               </button>
               <button onClick={clearResults} className="btn btn-secondary">
                 🗑️ Clear
@@ -477,8 +349,8 @@ export default function ApiTestPage() {
                 </div>
                 <div style={{ display: "flex", gap: "0.5rem", marginLeft: "auto" }}>
                   <button
-                    onClick={() => runTest(endpoint, false)}
-                    disabled={isRunning[endpoint.name]}
+                    onClick={() => runTest(endpoint)}
+                    disabled={isRunning[endpoint.name] || serviceStatus === "offline"}
                     className="btn btn-primary"
                   >
                     {isRunning[endpoint.name] ? (
@@ -489,14 +361,6 @@ export default function ApiTestPage() {
                     ) : (
                       "▶️ Test"
                     )}
-                  </button>
-                  <button
-                    onClick={() => runTest(endpoint, true)}
-                    disabled={isRunning[endpoint.name]}
-                    className="btn btn-demo"
-                    title="Run with demo data"
-                  >
-                    🎭 Demo
                   </button>
                 </div>
               </div>
@@ -540,7 +404,6 @@ export default function ApiTestPage() {
                       gap: "0.5rem"
                     }}>
                       {result.success ? "✅ Success" : "❌ Failed"}
-                      {result.isDemo && <span className="demo-badge">🎭 Demo</span>}
                     </span>
                     <span style={{ fontSize: "0.875rem", color: "var(--text-muted)" }}>
                       Status: <strong>{result.status || "N/A"}</strong> • 
@@ -557,19 +420,6 @@ export default function ApiTestPage() {
                       ? JSON.stringify(result.response, null, 2) 
                       : result.response}
                   </pre>
-                  
-                  {/* Error hints */}
-                  {!result.success && result.response?.hint && (
-                    <div style={{ marginTop: "0.75rem", padding: "0.75rem", background: "rgba(245, 158, 11, 0.1)", borderRadius: "4px" }}>
-                      <span style={{ color: "#f59e0b", fontSize: "0.875rem" }}>💡 {result.response.hint}</span>
-                      <button 
-                        onClick={() => runTest(endpoint, true)}
-                        style={{ marginLeft: "0.5rem", color: "#3b82f6", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}
-                      >
-                        Try Demo Mode
-                      </button>
-                    </div>
-                  )}
                 </div>
               )}
             </div>

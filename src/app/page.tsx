@@ -227,6 +227,27 @@ export default function Dashboard() {
       <main className="main-content">
         {/* Header */}
         <div className="page-header">
+          {/* Offline Warning Banner */}
+          {mlStatus === "offline" && (
+            <div style={{ 
+              marginBottom: '1rem', 
+              padding: '1rem', 
+              background: 'rgba(239, 68, 68, 0.15)', 
+              border: '1px solid rgba(239, 68, 68, 0.3)', 
+              borderRadius: '12px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.75rem'
+            }}>
+              <span style={{ fontSize: '1.5rem' }}>⚠️</span>
+              <div>
+                <div style={{ fontWeight: 600, color: 'var(--danger)' }}>ML Processing Offline</div>
+                <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+                  Fraud detection is unavailable. Please ensure the ML service is running at {ML_SERVICE_URL}
+                </div>
+              </div>
+            </div>
+          )}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
             <div>
               <h1 className="page-title">Fraud Detection Dashboard</h1>
@@ -247,7 +268,7 @@ export default function Dashboard() {
                 {new Date().toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
               </span>
             </div>
-            {hasRealData && (
+            {hasRealData && mlStatus === "online" && (
               <div style={{ display: 'flex', gap: '0.75rem' }}>
                 <button 
                   onClick={handleSaveToDatabase}

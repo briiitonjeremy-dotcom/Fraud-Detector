@@ -36,6 +36,7 @@ FraudGuard is a fintech web application for real-time fraud detection. The front
 - [x] Fix: Clear button now clears all saved fraud cases from database
 - [x] Add "Save to Database" button on dashboard to save high-risk transactions (>50% fraud probability)
 - [x] Add display section showing saved fraud cases from database
+- [x] Enhanced API Test Console with demo mode, latency display, and settings
 
 ## Current Structure
 
@@ -93,3 +94,4 @@ The frontend connects to the ML service at:
 | 2026-03-06 | Added Clear Data button and Save to Database features |
 | 2026-03-06 | Fixed transaction count (1000), fraud scores (from CSV), and transaction ID generation |
 | 2026-03-06 | Fixed Clear button to clear all saved fraud cases + added Save to Database button for >50% fraud probability transactions |
+| 2026-03-07 | Enhanced API Test Console with demo mode, latency display, settings, and retry logic |

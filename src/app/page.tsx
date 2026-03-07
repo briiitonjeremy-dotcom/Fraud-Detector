@@ -155,7 +155,7 @@ export default function Dashboard() {
       
       // Then check ML service health
       try {
-        const response = await fetch(`${ML_SERVICE_URL}/health`, {
+        const response = await fetch(`${ML_SERVICE_URL}/`, {
           method: "GET",
           headers: { "Content-Type": "application/json" },
         });

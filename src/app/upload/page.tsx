@@ -32,7 +32,7 @@ export default function UploadPage() {
   useEffect(() => {
     const checkServiceStatus = async () => {
       try {
-        const response = await fetch(`${ML_SERVICE_URL}/health`, {
+        const response = await fetch(`${ML_SERVICE_URL}/`, {
           method: "GET",
           headers: { "Content-Type": "application/json" },
         });

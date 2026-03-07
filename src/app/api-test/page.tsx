@@ -83,7 +83,7 @@ export default function ApiTestPage() {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000);
       
-      const response = await fetch(`${mlServiceUrl}/health`, {
+      const response = await fetch(`${mlServiceUrl}/`, {
         method: "GET",
         headers: { "Content-Type": "application/json" },
         signal: controller.signal

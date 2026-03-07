@@ -43,6 +43,7 @@ FraudGuard is a fintech web application for real-time fraud detection. The front
 - [x] Show "ML Processing Offline" warning when service unavailable
 - [x] Add Clear button to Explain page to clear current result
 - [x] Add Clear button to Upload page to clear current upload and results
+- [x] Add Admin module with full user management, transaction monitoring, and reports
 
 ## Current Structure
 
@@ -52,6 +53,8 @@ FraudGuard is a fintech web application for real-time fraud detection. The front
 | `src/app/upload/page.tsx` | CSV dataset upload | ✅ Complete |
 | `src/app/explain/page.tsx` | Transaction explainability | ✅ Complete |
 | `src/app/api-test/page.tsx` | API test console | ✅ Complete |
+| `src/app/admin/page.tsx` | Admin module with user management, transactions, reports | ✅ Complete |
+| `src/db/schema.ts` | Database schema (users, transactions, admin_logs, datasets) | ✅ Complete |
 | `src/app/layout.tsx` | Root layout | ✅ Complete |
 | `src/app/globals.css` | Custom styling | ✅ Complete |
 | `.kilocode/` | AI context & recipes | ✅ Ready |
@@ -101,3 +104,4 @@ The frontend connects to the ML service at:
 | 2026-03-06 | Fixed transaction count (1000), fraud scores (from CSV), and transaction ID generation |
 | 2026-03-06 | Fixed Clear button to clear all saved fraud cases + added Save to Database button for >50% fraud probability transactions |
 | 2026-03-07 | Enhanced API Test Console with demo mode, latency display, settings, and retry logic |
+| 2026-03-07 | Added Admin module with user management, transaction monitoring, explainability, reports, and actions |

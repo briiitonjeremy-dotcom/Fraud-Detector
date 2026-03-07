@@ -1,16 +1,65 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 
-const ML_SERVICE_URL = "https://ml-file-for-url.onrender.com";
+const DEFAULT_ML_SERVICE_URL = "https://ml-file-for-url.onrender.com";
 
-const navItems = [
-  { href: "/", icon: "📊", label: "Dashboard", active: false },
-  { href: "/upload", icon: "📤", label: "Upload Dataset", active: false },
-  { href: "/explain", icon: "🔍", label: "Explain", active: false },
-  { href: "/api-test", icon: "🧪", label: "API Test", active: true },
-];
+// Demo responses when API is offline
+const demoResponses: Record<string, any> = {
+  "/health": {
+    status: "ok",
+    service: "fraudguard-ml",
+    demo: true,
+    message: "Demo mode - ML service is currently offline"
+  },
+  "/predict": {
+    status: "success",
+    demo: true,
+    results: [
+      {
+        transaction_id: "TXN_001",
+        fraud_score: 0.82,
+        is_fraud: true,
+        is_anomaly: true
+      },
+      {
+        transaction_id: "TXN_002",
+        fraud_score: 0.15,
+        is_fraud: false,
+        is_anomaly: false
+      },
+      {
+        transaction_id: "TXN_003",
+        fraud_score: 0.45,
+        is_fraud: false,
+        is_anomaly: false
+      }
+    ]
+  },
+  "/process-dataset": {
+    status: "success",
+    demo: true,
+    message: "Demo mode - ML service is currently offline",
+    processed: 1000,
+    fraud_detected: 127,
+    fraud_rate: 12.7
+  },
+  "/explain/TXN_001": {
+    transaction_id: "TXN_001",
+    fraud_score: 0.82,
+    is_fraud: true,
+    demo: true,
+    narrative: "This transaction has been flagged as high-risk due to unusual transaction amount for this vendor, transaction made outside of normal business hours, and multiple failed authentication attempts.",
+    top_features: [
+      { feature: "amount", impact: 0.45, direction: "high" },
+      { feature: "transaction_hour", impact: 0.32, direction: "high" },
+      { feature: "failed_attempts", impact: 0.28, direction: "high" },
+      { feature: "region_mismatch", impact: 0.18, direction: "high" },
+      { feature: "vendor_reputation", impact: 0.12, direction: "low" }
+    ]
+  }
+};
 
 interface EndpointTest {
   name: string;
@@ -31,14 +80,13 @@ const endpoints: EndpointTest[] = [
     name: "Fraud Prediction",
     method: "POST",
     path: "/predict",
-    description: "Predict fraud for a single transaction",
+    description: "Predict fraud for sample transactions",
     requestBody: {
-      transaction_id: "TXN_001",
-      amount: 5000,
-      vendor_id: "V123",
-      vendor_name: "TechStore",
-      region: "US",
-      timestamp: "2024-01-15T10:30:00Z",
+      transactions: [
+        { transaction_id: "TXN_001", amount: 5000, vendor_name: "TechStore", region: "US", timestamp: "2024-01-15" },
+        { transaction_id: "TXN_002", amount: 150, vendor_name: "CoffeeShop", region: "US", timestamp: "2024-01-15" },
+        { transaction_id: "TXN_003", amount: 890, vendor_name: "GroceryMart", region: "UK", timestamp: "2024-01-15" }
+      ]
     },
   },
   {
@@ -47,14 +95,14 @@ const endpoints: EndpointTest[] = [
     path: "/process-dataset",
     description: "Process a CSV dataset for batch fraud detection",
     requestBody: {
-      csv_content: "transaction_id,amount,vendor_id,vendor_name,region,timestamp\nTXN_001,5000,V123,TechStore,US,2024-01-15T10:30:00Z",
+      csv_content: "transaction_id,amount,vendor_name,region,timestamp\nTXN_001,5000,TechStore,US,2024-01-15\nTXN_002,150,CoffeeShop,US,2024-01-15",
       file_name: "transactions.csv",
     },
   },
   {
     name: "Explain Transaction",
     method: "GET",
-    path: "/explain/{transaction_id}",
+    path: "/explain/TXN_001",
     description: "Get SHAP-based explanation for a transaction",
   },
 ];
@@ -65,28 +113,116 @@ interface TestResult {
   duration: number;
   success: boolean;
   response: any;
+  isDemo?: boolean;
 }
 
 export default function ApiTestPage() {
   const [results, setResults] = useState<TestResult[]>([]);
   const [isRunning, setIsRunning] = useState<{ [key: string]: boolean }>({});
+  // Initialize URL from localStorage - runs once at mount
+  const [mlServiceUrl, setMlServiceUrl] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('fraudguard_api_url');
+      return saved || DEFAULT_ML_SERVICE_URL;
+    }
+    return DEFAULT_ML_SERVICE_URL;
+  });
+  const [showSettings, setShowSettings] = useState(false);
+  const [serviceStatus, setServiceStatus] = useState<"checking" | "online" | "offline">("checking");
+  const [lastChecked, setLastChecked] = useState<string>("");
+  const [retryCount, setRetryCount] = useState(0);
+  const [showDemoMode, setShowDemoMode] = useState(false);
 
-  const runTest = async (endpoint: EndpointTest) => {
+  // Check ML service status on mount and periodically
+  const checkServiceStatus = useCallback(async (silent = false) => {
+    if (!silent) setServiceStatus("checking");
+    
+    const startTime = Date.now();
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      
+      const response = await fetch(`${mlServiceUrl}/health`, {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+        signal: controller.signal
+      });
+      
+      clearTimeout(timeoutId);
+      const duration = Date.now() - startTime;
+      
+      if (response.ok) {
+        setServiceStatus("online");
+        setLastChecked(new Date().toLocaleTimeString());
+        setShowDemoMode(false);
+        return { online: true, duration };
+      } else {
+        setServiceStatus("offline");
+        setShowDemoMode(true);
+        return { online: false, duration };
+      }
+    } catch (error: any) {
+      setServiceStatus("offline");
+      setShowDemoMode(true);
+      return { online: false, duration: Date.now() - startTime };
+    }
+  }, [mlServiceUrl]);
+
+  // Check status on mount
+  useEffect(() => {
+    const checkAndUpdate = async () => {
+      await checkServiceStatus();
+    };
+    checkAndUpdate();
+    
+    // Check every 30 seconds
+    const interval = setInterval(() => {
+      checkServiceStatus(true);
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [checkServiceStatus]);
+
+  const runTest = async (endpoint: EndpointTest, useDemoMode = false) => {
     setIsRunning((prev) => ({ ...prev, [endpoint.name]: true }));
 
     const startTime = Date.now();
 
     try {
-      let url = `${ML_SERVICE_URL}${endpoint.path}`;
+      let url = `${mlServiceUrl}${endpoint.path}`;
       let options: RequestInit = {
         method: endpoint.method,
         headers: {
           "Content-Type": "application/json",
         },
+        // Add timeout
+        signal: AbortSignal.timeout(10000)
       };
 
       if (endpoint.method === "POST" && endpoint.requestBody) {
         options.body = JSON.stringify(endpoint.requestBody);
+      }
+
+      // If demo mode, use demo response
+      if (useDemoMode || showDemoMode) {
+        await new Promise(resolve => setTimeout(resolve, 500)); // Simulate network delay
+        const demoResponse = demoResponses[endpoint.path] || { error: "No demo response available" };
+        
+        const result: TestResult = {
+          endpoint: endpoint.name,
+          status: 200,
+          duration: Date.now() - startTime,
+          success: true,
+          response: demoResponse,
+          isDemo: true
+        };
+
+        setResults((prev) => {
+          const filtered = prev.filter((r) => r.endpoint !== endpoint.name);
+          return [...filtered, result];
+        });
+        
+        setIsRunning((prev) => ({ ...prev, [endpoint.name]: false }));
+        return;
       }
 
       const response = await fetch(url, options);
@@ -107,32 +243,69 @@ export default function ApiTestPage() {
         response: responseData,
       };
 
+      // If failed, show option to use demo mode
+      if (!response.ok) {
+        setShowDemoMode(true);
+      }
+
       setResults((prev) => {
         const filtered = prev.filter((r) => r.endpoint !== endpoint.name);
         return [...filtered, result];
       });
     } catch (error: any) {
       const duration = Date.now() - startTime;
+      
+      // Check if it's a network error that should trigger demo mode
+      const isNetworkError = error.name === "AbortError" || error.message.includes("fetch");
+      
       const result: TestResult = {
         endpoint: endpoint.name,
         status: 0,
         duration,
         success: false,
-        response: { error: error.message || "Network error" },
+        response: { 
+          error: error.name === "AbortError" ? "Request timeout" : (error.message || "Network error"),
+          hint: isNetworkError ? "ML service may be offline. Try using Demo Mode." : undefined
+        },
       };
 
       setResults((prev) => {
         const filtered = prev.filter((r) => r.endpoint !== endpoint.name);
         return [...filtered, result];
       });
+
+      // If network error, offer demo mode
+      if (isNetworkError) {
+        setShowDemoMode(true);
+      }
     }
 
     setIsRunning((prev) => ({ ...prev, [endpoint.name]: false }));
   };
 
-  const runAllTests = async () => {
+  const runTestWithRetry = async (endpoint: EndpointTest, autoRetry = false) => {
+    if (!autoRetry) {
+      await runTest(endpoint, false);
+      return;
+    }
+
+    // Auto retry logic
+    setRetryCount(1);
+    await runTest(endpoint, false);
+    
+    // If failed and autoRetry is true, retry after 3 seconds
+    const result = results.find(r => r.endpoint === endpoint.name);
+    if (result && !result.success && retryCount < 3) {
+      setTimeout(async () => {
+        setRetryCount(prev => prev + 1);
+        await runTest(endpoint, false);
+      }, 3000);
+    }
+  };
+
+  const runAllTests = async (useDemo = false) => {
     for (const endpoint of endpoints) {
-      await runTest(endpoint);
+      await runTest(endpoint, useDemo);
     }
   };
 
@@ -141,6 +314,19 @@ export default function ApiTestPage() {
   };
 
   const getResult = (endpointName: string) => results.find((r) => r.endpoint === endpointName);
+
+  const handleUrlChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setMlServiceUrl(e.target.value);
+  };
+
+  const saveUrl = () => {
+    localStorage.setItem('fraudguard_api_url', mlServiceUrl);
+    checkServiceStatus();
+  };
+
+  const toggleDemoMode = () => {
+    setShowDemoMode(!showDemoMode);
+  };
 
   return (
     <div className="app-container">
@@ -172,9 +358,84 @@ export default function ApiTestPage() {
           <p className="page-subtitle">Test the fraud detection ML service endpoints directly</p>
         </div>
 
+        {/* Service Status Banner */}
+        <div className={`status-banner status-${serviceStatus}`}>
+          <div className="status-info">
+            <span className="status-indicator">
+              {serviceStatus === "checking" && "⏳"}
+              {serviceStatus === "online" && "✅"}
+              {serviceStatus === "offline" && "❌"}
+            </span>
+            <span className="status-text">
+              {serviceStatus === "checking" && "Checking ML service status..."}
+              {serviceStatus === "online" && "ML Service Connected"}
+              {serviceStatus === "offline" && "ML Service Unreachable"}
+            </span>
+            {lastChecked && (
+              <span className="status-time">Last checked: {lastChecked}</span>
+            )}
+          </div>
+          <div className="status-actions">
+            <button onClick={() => checkServiceStatus()} className="btn btn-small">
+              🔄 Recheck
+            </button>
+            <button onClick={() => setShowSettings(!showSettings)} className="btn btn-small">
+              ⚙️ Settings
+            </button>
+          </div>
+        </div>
+
+        {/* Demo Mode Banner */}
+        {showDemoMode && (
+          <div className="demo-banner">
+            <div className="demo-info">
+              <span className="demo-icon">🎭</span>
+              <span className="demo-text">
+                <strong>Demo Mode Active</strong> - Using simulated responses because ML service is offline
+              </span>
+            </div>
+            <button onClick={() => runAllTests(true)} className="btn btn-demo">
+              Run Tests in Demo Mode
+            </button>
+          </div>
+        )}
+
+        {/* Settings Panel */}
+        {showSettings && (
+          <div className="settings-panel card">
+            <h3>⚙️ API Settings</h3>
+            <div className="settings-form">
+              <div className="form-group">
+                <label>ML Service URL:</label>
+                <input
+                  type="text"
+                  value={mlServiceUrl}
+                  onChange={handleUrlChange}
+                  placeholder="https://your-ml-service.onrender.com"
+                  className="form-input"
+                />
+              </div>
+              <div className="settings-actions">
+                <button onClick={saveUrl} className="btn btn-primary">
+                  💾 Save URL
+                </button>
+                <button onClick={() => {
+                  setMlServiceUrl(DEFAULT_ML_SERVICE_URL);
+                  localStorage.setItem('fraudguard_api_url', DEFAULT_ML_SERVICE_URL);
+                }} className="btn btn-secondary">
+                  Reset to Default
+                </button>
+              </div>
+            </div>
+            <div className="settings-info">
+              <p><strong>Tip:</strong> If the ML service is running on Render, use the URL like: <code>https://your-app-name.onrender.com</code></p>
+            </div>
+          </div>
+        )}
+
         {/* Service Info */}
         <div className="card" style={{ marginBottom: "1.5rem" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "1rem" }}>
             <div>
               <h3 style={{ marginBottom: "0.5rem" }}>🔌 ML Service Endpoint</h3>
               <code style={{ 
@@ -183,12 +444,15 @@ export default function ApiTestPage() {
                 borderRadius: "4px",
                 fontSize: "0.875rem"
               }}>
-                {ML_SERVICE_URL}
+                {mlServiceUrl}
               </code>
             </div>
-            <div style={{ display: "flex", gap: "1rem" }}>
-              <button onClick={runAllTests} className="btn btn-primary">
+            <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
+              <button onClick={() => runAllTests(false)} className="btn btn-primary">
                 🚀 Run All Tests
+              </button>
+              <button onClick={() => runAllTests(true)} className="btn btn-secondary">
+                🎭 Run Demo Mode
               </button>
               <button onClick={clearResults} className="btn btn-secondary">
                 🗑️ Clear
@@ -211,21 +475,30 @@ export default function ApiTestPage() {
                   <h3 style={{ fontWeight: 600 }}>{endpoint.name}</h3>
                   <code className="endpoint-path">{endpoint.path}</code>
                 </div>
-                <button
-                  onClick={() => runTest(endpoint)}
-                  disabled={isRunning[endpoint.name]}
-                  className="btn btn-primary"
-                  style={{ marginLeft: "auto" }}
-                >
-                  {isRunning[endpoint.name] ? (
-                    <>
-                      <span className="spinner" style={{ width: "14px", height: "14px" }} />
-                      Running...
-                    </>
-                  ) : (
-                    "▶️ Test"
-                  )}
-                </button>
+                <div style={{ display: "flex", gap: "0.5rem", marginLeft: "auto" }}>
+                  <button
+                    onClick={() => runTest(endpoint, false)}
+                    disabled={isRunning[endpoint.name]}
+                    className="btn btn-primary"
+                  >
+                    {isRunning[endpoint.name] ? (
+                      <>
+                        <span className="spinner" style={{ width: "14px", height: "14px" }} />
+                        Running...
+                      </>
+                    ) : (
+                      "▶️ Test"
+                    )}
+                  </button>
+                  <button
+                    onClick={() => runTest(endpoint, true)}
+                    disabled={isRunning[endpoint.name]}
+                    className="btn btn-demo"
+                    title="Run with demo data"
+                  >
+                    🎭 Demo
+                  </button>
+                </div>
               </div>
 
               <p style={{ color: "var(--text-secondary)", fontSize: "0.875rem", marginBottom: "1rem" }}>
@@ -258,15 +531,20 @@ export default function ApiTestPage() {
                   background: result.success ? "rgba(16, 185, 129, 0.1)" : "rgba(239, 68, 68, 0.1)",
                   border: `1px solid ${result.success ? "#10b981" : "#ef4444"}`
                 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", marginBottom: "0.5rem" }}>
                     <span style={{ 
                       color: result.success ? "#10b981" : "#ef4444",
-                      fontWeight: 600
+                      fontWeight: 600,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "0.5rem"
                     }}>
                       {result.success ? "✅ Success" : "❌ Failed"}
+                      {result.isDemo && <span className="demo-badge">🎭 Demo</span>}
                     </span>
                     <span style={{ fontSize: "0.875rem", color: "var(--text-muted)" }}>
-                      Status: <strong>{result.status || "N/A"}</strong> • Duration: <strong>{result.duration}ms</strong>
+                      Status: <strong>{result.status || "N/A"}</strong> • 
+                      Latency: <strong style={{ color: result.duration < 1000 ? "#10b981" : "#f59e0b" }}>{result.duration}ms</strong>
                     </span>
                   </div>
                   <pre style={{ 
@@ -279,6 +557,19 @@ export default function ApiTestPage() {
                       ? JSON.stringify(result.response, null, 2) 
                       : result.response}
                   </pre>
+                  
+                  {/* Error hints */}
+                  {!result.success && result.response?.hint && (
+                    <div style={{ marginTop: "0.75rem", padding: "0.75rem", background: "rgba(245, 158, 11, 0.1)", borderRadius: "4px" }}>
+                      <span style={{ color: "#f59e0b", fontSize: "0.875rem" }}>💡 {result.response.hint}</span>
+                      <button 
+                        onClick={() => runTest(endpoint, true)}
+                        style={{ marginLeft: "0.5rem", color: "#3b82f6", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}
+                      >
+                        Try Demo Mode
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -286,12 +577,163 @@ export default function ApiTestPage() {
         })}
 
         {/* Quick Links */}
-        <div style={{ marginTop: "1.5rem" }}>
+        <div style={{ marginTop: "1.5rem", display: "flex", gap: "1rem", flexWrap: "wrap" }}>
           <Link href="/" className="btn btn-secondary">
             ← Back to Dashboard
           </Link>
         </div>
       </main>
+
+      <style jsx>{`
+        .status-banner {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 1rem 1.5rem;
+          border-radius: 8px;
+          margin-bottom: 1rem;
+          flex-wrap: wrap;
+          gap: 1rem;
+        }
+        .status-checking {
+          background: rgba(59, 130, 246, 0.1);
+          border: 1px solid #3b82f6;
+        }
+        .status-online {
+          background: rgba(16, 185, 129, 0.1);
+          border: 1px solid #10b981;
+        }
+        .status-offline {
+          background: rgba(239, 68, 68, 0.1);
+          border: 1px solid #ef4444;
+        }
+        .status-info {
+          display: flex;
+          align-items: center;
+          gap: 0.75rem;
+          flex-wrap: wrap;
+        }
+        .status-indicator {
+          font-size: 1.25rem;
+        }
+        .status-text {
+          font-weight: 600;
+        }
+        .status-time {
+          font-size: 0.75rem;
+          color: var(--text-muted);
+        }
+        .status-actions {
+          display: flex;
+          gap: 0.5rem;
+        }
+        .demo-banner {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 1rem 1.5rem;
+          background: linear-gradient(135deg, rgba(139, 92, 246, 0.1), rgba(59, 130, 246, 0.1));
+          border: 1px solid #8b5cf6;
+          border-radius: 8px;
+          margin-bottom: 1rem;
+          flex-wrap: wrap;
+          gap: 1rem;
+        }
+        .demo-info {
+          display: flex;
+          align-items: center;
+          gap: 0.75rem;
+        }
+        .demo-icon {
+          font-size: 1.5rem;
+        }
+        .demo-text {
+          color: var(--text-primary);
+        }
+        .settings-panel {
+          margin-bottom: 1.5rem;
+        }
+        .settings-form {
+          display: flex;
+          flex-direction: column;
+          gap: 1rem;
+          margin-top: 1rem;
+        }
+        .form-group {
+          display: flex;
+          flex-direction: column;
+          gap: 0.5rem;
+        }
+        .form-group label {
+          font-weight: 600;
+          font-size: 0.875rem;
+        }
+        .form-input {
+          padding: 0.75rem;
+          border: 1px solid var(--border-color);
+          border-radius: 6px;
+          background: var(--bg-primary);
+          color: var(--text-primary);
+          font-size: 0.875rem;
+        }
+        .form-input:focus {
+          outline: none;
+          border-color: #3b82f6;
+        }
+        .settings-actions {
+          display: flex;
+          gap: 0.75rem;
+          flex-wrap: wrap;
+        }
+        .settings-info {
+          margin-top: 1rem;
+          padding: 0.75rem;
+          background: var(--bg-secondary);
+          border-radius: 6px;
+          font-size: 0.75rem;
+          color: var(--text-secondary);
+        }
+        .settings-info code {
+          background: var(--bg-primary);
+          padding: 0.25rem 0.5rem;
+          border-radius: 4px;
+        }
+        .btn-small {
+          padding: 0.5rem 1rem;
+          font-size: 0.75rem;
+        }
+        .btn-demo {
+          background: linear-gradient(135deg, #8b5cf6, #6366f1);
+          color: white;
+          border: none;
+          padding: 0.5rem 1rem;
+          border-radius: 6px;
+          cursor: pointer;
+          font-size: 0.875rem;
+          font-weight: 500;
+          transition: all 0.2s;
+        }
+        .btn-demo:hover {
+          background: linear-gradient(135deg, #7c3aed, #4f46e5);
+          transform: translateY(-1px);
+        }
+        .demo-badge {
+          background: #8b5cf6;
+          color: white;
+          padding: 0.125rem 0.5rem;
+          border-radius: 4px;
+          font-size: 0.625rem;
+          font-weight: 600;
+          text-transform: uppercase;
+        }
+      `}</style>
     </div>
   );
 }
+
+const navItems = [
+  { href: "/", icon: "⬡", label: "Dashboard", active: false },
+  { href: "/upload", icon: "⇪", label: "Upload Dataset", active: false },
+  { href: "/explain", icon: "⟁", label: "Explain", active: false },
+  { href: "/api-test", icon: "⚡", label: "API Test", active: true },
+];

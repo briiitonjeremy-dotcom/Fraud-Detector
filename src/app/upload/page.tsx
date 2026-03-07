@@ -389,6 +389,19 @@ export default function UploadPage() {
                 "🚀 Upload & Analyze"
               )}
             </button>
+            {result && (
+              <button
+                onClick={() => {
+                  setFile(null);
+                  setResult(null);
+                  setCsvData([]);
+                }}
+                className="btn btn-secondary"
+                title="Clear current result"
+              >
+                🗑 Clear
+              </button>
+            )}
           </div>
 
           {/* Results */}

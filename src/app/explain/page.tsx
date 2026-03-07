@@ -193,6 +193,20 @@ export default function ExplainPage() {
                   "🔍 Explain"
                 )}
               </button>
+              {result && (
+                <button
+                  onClick={() => {
+                    setTransactionId("");
+                    setResult(null);
+                    setSavedToDb(false);
+                    setError(null);
+                  }}
+                  className="btn btn-secondary"
+                  title="Clear current result"
+                >
+                  🗑 Clear
+                </button>
+              )}
             </div>
           </div>
 

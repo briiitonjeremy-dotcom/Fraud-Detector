@@ -41,6 +41,8 @@ FraudGuard is a fintech web application for real-time fraud detection. The front
 - [x] Add ML API status indicator to all pages (Dashboard, Upload, Explain, API Test)
 - [x] Disable all prediction buttons when ML API is offline
 - [x] Show "ML Processing Offline" warning when service unavailable
+- [x] Add Clear button to Explain page to clear current result
+- [x] Add Clear button to Upload page to clear current upload and results
 
 ## Current Structure
 

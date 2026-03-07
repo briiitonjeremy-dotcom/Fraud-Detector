@@ -53,6 +53,7 @@ FraudGuard is a fintech web application for real-time fraud detection. The front
 | `src/app/upload/page.tsx` | CSV dataset upload | ✅ Complete |
 | `src/app/explain/page.tsx` | Transaction explainability | ✅ Complete |
 | `src/app/api-test/page.tsx` | API test console | ✅ Complete |
+| `src/app/admin/login/page.tsx` | Admin login page with password protection | ✅ Complete |
 | `src/app/admin/page.tsx` | Admin module with user management, transactions, reports | ✅ Complete |
 | `src/db/schema.ts` | Database schema (users, transactions, admin_logs, datasets) | ✅ Complete |
 | `src/app/layout.tsx` | Root layout | ✅ Complete |
@@ -105,3 +106,5 @@ The frontend connects to the ML service at:
 | 2026-03-06 | Fixed Clear button to clear all saved fraud cases + added Save to Database button for >50% fraud probability transactions |
 | 2026-03-07 | Enhanced API Test Console with demo mode, latency display, settings, and retry logic |
 | 2026-03-07 | Added Admin module with user management, transaction monitoring, explainability, reports, and actions |
+| 2026-03-07 | Added Admin login page at /admin/login with password protection |
+| 2026-03-07 | Added Admin link in dashboard navigation |

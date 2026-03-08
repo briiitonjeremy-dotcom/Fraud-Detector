@@ -1,7 +1,5 @@
 "use client";
 
-/* eslint-disable react-hooks/rules-of-hooks */
-
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { 
@@ -133,20 +131,6 @@ export default function AdminPage() {
     setCheckingAuth(false);
   }, [router]);
 
-  // Show loading while checking auth
-  if (checkingAuth) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-900">
-        <div className="text-cyan-400">Loading...</div>
-      </div>
-    );
-  }
-
-  // Don't render if not authenticated (will redirect)
-  if (!isAuthenticated) {
-    return null;
-  }
-
   // Check API status
   const checkApiStatus = useCallback(async () => {
     const start = Date.now();
@@ -261,6 +245,42 @@ export default function AdminPage() {
     }
     setFraudTrendData(days);
   }, []);
+
+  // Initial data load
+  useEffect(() => {
+    checkApiStatus();
+    loadUsers();
+    loadTransactions();
+    loadAdminLogs();
+    loadDashboardStats();
+    
+    // Refresh API status every 30 seconds
+    const interval = setInterval(checkApiStatus, 30000);
+    return () => clearInterval(interval);
+  }, [checkApiStatus, loadUsers, loadTransactions, loadAdminLogs, loadDashboardStats]);
+
+  // Load reports data when on reports tab
+  useEffect(() => {
+    if (activeTab === "reports") {
+      generateVendorReport();
+      generateGeoReport();
+      generateFraudTrendReport();
+    }
+  }, [activeTab, generateVendorReport, generateGeoReport, generateFraudTrendReport]);
+
+  // Show loading while checking auth
+  if (checkingAuth) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-900">
+        <div className="text-cyan-400">Loading...</div>
+      </div>
+    );
+  }
+
+  // Don't render if not authenticated (will redirect)
+  if (!isAuthenticated) {
+    return null;
+  }
 
   // Add new user
   const handleAddUser = async () => {
@@ -451,28 +471,6 @@ export default function AdminPage() {
       console.error("Failed to clear data:", error);
     }
   };
-
-  // Initial data load
-  useEffect(() => {
-    checkApiStatus();
-    loadUsers();
-    loadTransactions();
-    loadAdminLogs();
-    loadDashboardStats();
-    
-    // Refresh API status every 30 seconds
-    const interval = setInterval(checkApiStatus, 30000);
-    return () => clearInterval(interval);
-  }, [checkApiStatus, loadUsers, loadTransactions, loadAdminLogs, loadDashboardStats]);
-
-  // Load reports data when on reports tab
-  useEffect(() => {
-    if (activeTab === "reports") {
-      generateVendorReport();
-      generateGeoReport();
-      generateFraudTrendReport();
-    }
-  }, [activeTab, generateVendorReport, generateGeoReport, generateFraudTrendReport]);
 
   const tabs = [
     { id: "dashboard", label: "📊 Dashboard" },

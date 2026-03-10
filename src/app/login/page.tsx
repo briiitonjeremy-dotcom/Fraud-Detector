@@ -42,6 +42,9 @@ export default function LoginPage() {
         sessionStorage.setItem("login_email", result.email || "");
         
         router.push("/login/verify");
+      } else {
+        // Login succeeded without OTP - redirect to dashboard
+        router.push("/");
       }
     } catch (err) {
       setError("An error occurred. Please try again.");

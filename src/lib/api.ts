@@ -52,7 +52,8 @@ export interface ResendOTPResponse {
 // Login via Flask backend
 // Calls: POST ${API_BASE_URL}/login
 // Request: { "email": "...", "password": "..." }
-// Response: { "success": true, "requires_otp": true, "temp_token": "..." } or { "error": "Invalid credentials" }
+// Success Response: { "message": "Login successful" }
+// Failure Response: { "error": "Invalid credentials" } or { "error": "User not found" }
 export async function loginToBackend(
   email: string,
   password: string
@@ -69,18 +70,24 @@ export async function loginToBackend(
 
     const data = await response.json();
 
-    if (!response.ok) {
+    // Check for successful login by message
+    if (response.ok && data.message === "Login successful") {
+      // Login succeeded - Flask backend returns just a message
+      // For now, treat as successful login (could be extended to handle OTP later)
       return {
-        success: false,
-        error: data.error || data.message || "Login failed",
+        success: true,
+        message: data.message,
+        // If backend returns requires_otp and temp_token, use them
+        // Otherwise, assume direct login success
+        requires_otp: data.requires_otp ?? false,
+        temp_token: data.temp_token,
       };
     }
 
+    // Login failed - return the error message from backend
     return {
-      success: data.success ?? true,
-      requires_otp: data.requires_otp ?? false,
-      temp_token: data.temp_token,
-      message: data.message,
+      success: false,
+      error: data.error || data.message || "Authentication failed",
     };
   } catch (error) {
     console.error("[API] Login error:", error);

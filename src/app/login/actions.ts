@@ -18,6 +18,7 @@ export async function loginWithPassword(formData: FormData) {
     return { success: false, error: result.error };
   }
 
+  // Check if OTP is required
   if (result.requires_otp && result.temp_token) {
     // Store temp token and redirect to OTP page
     return {
@@ -28,7 +29,22 @@ export async function loginWithPassword(formData: FormData) {
     };
   }
 
-  return { success: false, error: "Authentication failed" };
+  // Login succeeded without OTP - treat as successful login
+  // Store user info in session (since Flask doesn't return a token, we use email as identifier)
+  const cookieStore = await cookies();
+  cookieStore.set(
+    "auth_token",
+    Buffer.from(JSON.stringify({ email, role: "user" })).toString("base64"),
+    {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      maxAge: 60 * 60 * 24, // 24 hours
+      path: "/",
+    }
+  );
+
+  return { success: true, email: email };
 }
 
 export async function verifyOTP(formData: FormData) {

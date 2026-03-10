@@ -44,6 +44,12 @@ FraudGuard is a fintech web application for real-time fraud detection. The front
 - [x] Add Clear button to Explain page to clear current result
 - [x] Add Clear button to Upload page to clear current upload and results
 - [x] Fix: Convert admin page to Server Actions to avoid node:fs client bundle issue (build now succeeds)
+- [x] Fix ML processing flow: use /health endpoint for health checks (more reliable)
+- [x] Fix upload handler to properly process ML response and store in localStorage
+- [x] Fix dashboard to read ML-processed transactions from localStorage
+- [x] Fix explain page to search localStorage for transactions before calling ML backend
+- [x] Update API test endpoints to show correct request format for CSV data
+- [x] Remove random fraud score generation - use actual ML scores
 
 ## Current Structure
 
@@ -108,3 +114,4 @@ The frontend connects to the ML service at:
 | 2026-03-07 | Added Admin module with user management, transaction monitoring, explainability, reports, and actions |
 | 2026-03-07 | Added Admin login page at /admin/login with password protection |
 | 2026-03-07 | Added Admin link in dashboard navigation |
+| 2026-03-10 | Fixed ML processing flow - proper health checks, data storage, and explainability |

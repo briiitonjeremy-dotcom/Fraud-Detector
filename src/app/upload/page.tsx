@@ -19,13 +19,18 @@ interface UploadResult {
   processingTime?: number;
 }
 
+type UploadStatus = "idle" | "processing" | "success" | "error";
+type ErrorType = "none" | "offline" | "timeout" | "api_error";
+
 export default function UploadPage() {
   const [file, setFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState<UploadStatus>("idle");
   const [result, setResult] = useState<UploadResult | null>(null);
   const [csvData, setCsvData] = useState<string[][]>([]);
   const [mlStatus, setMlStatus] = useState<"loading" | "online" | "offline">("loading");
+  const [errorType, setErrorType] = useState<ErrorType>("none");
+  const [uploadProgress, setUploadProgress] = useState<string>("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Check ML service health status on mount
@@ -117,8 +122,10 @@ export default function UploadPage() {
       return;
     }
 
-    setIsUploading(true);
+    setUploadStatus("processing");
+    setErrorType("none");
     setResult(null);
+    setUploadProgress("Reading file...");
 
     const startTime = Date.now();
 
@@ -153,10 +160,11 @@ export default function UploadPage() {
       }
 
       console.log(`[Upload] Sending ${transactions.length} transactions to ML service /predict...`);
+      setUploadProgress(`Analyzing ${transactions.length} transactions... ML model is processing your file, please wait...`);
       
-      // Create timeout controller (30 seconds)
+      // Create timeout controller (180 seconds = 3 minutes)
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000);
+      const timeoutId = setTimeout(() => controller.abort(), 180000);
       
       // Send to ML /predict endpoint (more reliable than /process-dataset)
       const response = await fetch(`${ML_SERVICE_URL}/predict`, {
@@ -179,6 +187,7 @@ export default function UploadPage() {
       if (response.ok) {
         const data = await response.json();
         console.log("[Upload] ML response data:", data);
+        setUploadProgress("Processing results...");
         
         // Extract predictions from ML response - /predict returns predictions array
         const predictions = data.predictions || data.results || [];
@@ -237,30 +246,38 @@ export default function UploadPage() {
           },
           processingTime: processingTime,
         });
+        setUploadStatus("success");
       } else {
         const errorData = await response.json().catch(() => ({}));
         console.error("[Upload] ML error response:", errorData);
+        setErrorType("api_error");
         setResult({
           success: false,
           message: errorData.error || errorData.message || `ML processing failed (${response.status})`,
         });
+        setUploadStatus("error");
       }
     } catch (error: any) {
       console.error("[Upload] Network error:", error);
       
       // Check if it's a timeout
-      const errorMessage = error.name === 'AbortError' ? 
-        'Request timed out. The ML service may be taking too long to process.' : 
-        error.message || 'Unable to connect to the fraud detection service';
-      
-      // ML service is unavailable - show error instead of fake data
-      setResult({
-        success: false,
-        message: `ML Processing Offline - ${errorMessage}. Please try again later.`,
-      });
+      if (error.name === 'AbortError') {
+        setErrorType("timeout");
+        setResult({
+          success: false,
+          message: "Processing is taking longer than expected. The ML service is still analyzing your dataset. Please try again or use a smaller dataset.",
+        });
+      } else {
+        setErrorType("offline");
+        setResult({
+          success: false,
+          message: error.message || "Unable to connect to the fraud detection service",
+        });
+      }
+      setUploadStatus("error");
     }
 
-    setIsUploading(false);
+    setUploadStatus(uploadStatus === "success" ? "success" : "error");
   };
 
   const removeFile = () => {
@@ -414,32 +431,54 @@ export default function UploadPage() {
 
           {/* Upload Button */}
           <div style={{ marginTop: "1.5rem", display: "flex", gap: "1rem" }}>
-            {/* Offline Warning */}
-            {mlStatus === "offline" && (
-              <div className="alert alert-error" style={{ width: '100%', marginBottom: '1rem' }}>
-                ⚠️ <strong>ML Processing Offline</strong> - Upload and analyze is unavailable because the ML service is not responding.
-              </div>
+            {/* Status Messages */}
+          {uploadStatus === "processing" && (
+            <div className="alert alert-info" style={{ width: '100%', marginBottom: '1rem' }}>
+              <span className="spinner" style={{ width: "14px", height: "14px", marginRight: "8px" }} />
+              <strong>{uploadProgress || "Processing..."}</strong>
+            </div>
+          )}
+          
+          {/* Error Messages - distinguished by type */}
+          {errorType === "offline" && (
+            <div className="alert alert-error" style={{ width: '100%', marginBottom: '1rem' }}>
+              ⚠️ <strong>ML Processing Offline</strong> - Unable to reach the ML service. Please check your connection and try again.
+            </div>
+          )}
+          {errorType === "timeout" && (
+            <div className="alert alert-warning" style={{ width: '100%', marginBottom: '1rem' }}>
+              ⏳ <strong>Processing is taking longer than expected.</strong> The ML service is still analyzing your dataset. Please wait or try a smaller dataset.
+            </div>
+          )}
+          {errorType === "api_error" && (
+            <div className="alert alert-error" style={{ width: '100%', marginBottom: '1rem' }}>
+              ⚠️ <strong>ML Processing Error</strong> - {result?.message || "An error occurred while processing your dataset."}
+            </div>
+          )}
+          
+          <button
+            onClick={handleUpload}
+            disabled={!file || uploadStatus === "processing" || mlStatus === "offline"}
+            className="btn btn-primary"
+          >
+            {uploadStatus === "processing" ? (
+              <>
+                <span className="spinner" style={{ width: "16px", height: "16px" }} />
+                Analyzing dataset...
+              </>
+            ) : (
+              "🚀 Upload & Analyze"
             )}
-            <button
-              onClick={handleUpload}
-              disabled={!file || isUploading || mlStatus === "offline"}
-              className="btn btn-primary"
-            >
-              {isUploading ? (
-                <>
-                  <span className="spinner" style={{ width: "16px", height: "16px" }} />
-                  Processing...
-                </>
-              ) : (
-                "🚀 Upload & Analyze"
-              )}
-            </button>
+          </button>
             {result && (
               <button
                 onClick={() => {
                   setFile(null);
                   setResult(null);
                   setCsvData([]);
+                  setUploadStatus("idle");
+                  setErrorType("none");
+                  setUploadProgress("");
                 }}
                 className="btn btn-secondary"
                 title="Clear current result"

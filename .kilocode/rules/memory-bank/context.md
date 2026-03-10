@@ -52,6 +52,14 @@ FraudGuard is a fintech web application for real-time fraud detection. The front
 - [x] Remove random fraud score generation - use actual ML scores
 - [x] Fix upload to use /predict endpoint instead of /process-dataset (more reliable)
 - [x] Add timeout (30s) and better error handling for upload
+- [x] Increase ML upload timeout to 180s (3 minutes) for slower ML processing
+- [x] Add proper processing messages during upload ("Analyzing dataset...", "ML model is processing your file, please wait...")
+- [x] Show spinner/loading indicator during analysis
+- [x] Distinguish between offline/timeout/api_error messages
+- [x] Create optimized Flask backend with batch processing (250 rows per batch)
+- [x] Flask model loaded once at startup, not per request
+- [x] Add comprehensive logging to Flask backend (request, CSV parsing, preprocessing, prediction, total time)
+- [x] Flask returns only necessary result fields
 
 ## Current Structure
 
@@ -63,6 +71,7 @@ FraudGuard is a fintech web application for real-time fraud detection. The front
 | `src/app/api-test/page.tsx` | API test console | ✅ Complete |
 | `src/app/admin/login/page.tsx` | Admin login page with password protection | ✅ Complete |
 | `src/app/admin/page.tsx` | Admin module with user management, transactions, reports | ✅ Complete |
+| `src/app/api/ml_backend.py` | Optimized Flask ML backend | ✅ Complete |
 | `src/db/schema.ts` | Database schema (users, transactions, admin_logs, datasets) | ✅ Complete |
 | `src/app/layout.tsx` | Root layout | ✅ Complete |
 | `src/app/globals.css` | Custom styling | ✅ Complete |

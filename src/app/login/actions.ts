@@ -1,7 +1,7 @@
 "use server";
 
-import { verifyCredentials, verifyOTPAndLogin, createOTP, getPendingOTP } from "@/lib/auth";
-import { redirect } from "next/navigation";
+import { loginToBackend, verifyOTPOnBackend, resendOTPOnBackend } from "@/lib/api";
+import { cookies } from "next/headers";
 
 export async function loginWithPassword(formData: FormData) {
   const email = formData.get("email") as string;
@@ -11,19 +11,20 @@ export async function loginWithPassword(formData: FormData) {
     return { success: false, error: "Email and password are required" };
   }
 
-  const result = await verifyCredentials(email, password);
+  // Call Flask backend API for login
+  const result = await loginToBackend(email, password);
 
   if (!result.success) {
-    return result;
+    return { success: false, error: result.error };
   }
 
-  if (result.requiresOTP && result.tempToken) {
-    // Store temp token in cookies or redirect to OTP page
+  if (result.requires_otp && result.temp_token) {
+    // Store temp token and redirect to OTP page
     return {
       success: true,
       requiresOTP: true,
-      tempToken: result.tempToken,
-      email: result.email,
+      tempToken: result.temp_token,
+      email: email,
     };
   }
 
@@ -38,14 +39,24 @@ export async function verifyOTP(formData: FormData) {
     return { success: false, error: "Invalid request" };
   }
 
-  const result = await verifyOTPAndLogin(tempToken, otpCode);
+  // Call Flask backend API for OTP verification
+  const result = await verifyOTPOnBackend(tempToken, otpCode);
 
   if (!result.success) {
-    return result;
+    return { success: false, error: result.error };
   }
 
-  // Store user session in cookies or localStorage
+  // Store user session in cookies
   if (result.user) {
+    const cookieStore = await cookies();
+    cookieStore.set("auth_token", Buffer.from(JSON.stringify(result.user)).toString("base64"), {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      maxAge: 60 * 60 * 24, // 24 hours
+      path: "/",
+    });
+
     return {
       success: true,
       user: result.user,
@@ -62,27 +73,12 @@ export async function resendOTP(formData: FormData) {
     return { success: false, error: "Invalid session" };
   }
 
-  try {
-    // Decode temp token
-    const decoded = Buffer.from(tempToken, "base64").toString();
-    const [userIdStr] = decoded.split(":");
-    const userId = parseInt(userIdStr);
+  // Call Flask backend API to resend OTP
+  const result = await resendOTPOnBackend(tempToken);
 
-    if (isNaN(userId)) {
-      return { success: false, error: "Invalid session" };
-    }
-
-    // Check if there's a recent OTP (60 second cooldown)
-    const pendingOTP = await getPendingOTP(userId, "login");
-    if (pendingOTP) {
-      return { success: false, error: "Please wait before requesting another OTP" };
-    }
-
-    // Create new OTP
-    await createOTP(userId, "login");
-
-    return { success: true };
-  } catch (error) {
-    return { success: false, error: "Failed to resend OTP" };
+  if (!result.success) {
+    return { success: false, error: result.error };
   }
+
+  return { success: true };
 }

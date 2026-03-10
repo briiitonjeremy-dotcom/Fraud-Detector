@@ -3,6 +3,268 @@
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "https://ml-file-for-url.onrender.com";
 
+// ============== AUTHENTICATION TYPES ==============
+
+export interface LoginRequest {
+  email: string;
+  password: string;
+}
+
+export interface LoginResponse {
+  success: boolean;
+  message?: string;
+  error?: string;
+  requires_otp?: boolean;
+  temp_token?: string;
+  user?: {
+    id: number;
+    email: string;
+    name: string;
+    role: string;
+  };
+}
+
+export interface VerifyOTPRequest {
+  temp_token: string;
+  otp_code: string;
+}
+
+export interface VerifyOTPResponse {
+  success: boolean;
+  message?: string;
+  error?: string;
+  user?: {
+    id: number;
+    email: string;
+    name: string;
+    role: string;
+  };
+}
+
+export interface ResendOTPResponse {
+  success: boolean;
+  message?: string;
+  error?: string;
+}
+
+// ============== AUTHENTICATION FUNCTIONS ==============
+
+// Login via Flask backend
+// Calls: POST ${API_BASE_URL}/login
+// Request: { "email": "...", "password": "..." }
+// Response: { "success": true, "requires_otp": true, "temp_token": "..." } or { "error": "Invalid credentials" }
+export async function loginToBackend(
+  email: string,
+  password: string
+): Promise<LoginResponse> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/login`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ email, password }),
+      cache: "no-store",
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      return {
+        success: false,
+        error: data.error || data.message || "Login failed",
+      };
+    }
+
+    return {
+      success: data.success ?? true,
+      requires_otp: data.requires_otp ?? false,
+      temp_token: data.temp_token,
+      message: data.message,
+    };
+  } catch (error) {
+    console.error("[API] Login error:", error);
+    return {
+      success: false,
+      error: "Failed to connect to backend. Please try again.",
+    };
+  }
+}
+
+// Verify OTP via Flask backend
+// Calls: POST ${API_BASE_URL}/login/verify
+// Request: { "temp_token": "...", "otp_code": "..." }
+export async function verifyOTPOnBackend(
+  tempToken: string,
+  otpCode: string
+): Promise<VerifyOTPResponse> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/login/verify`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ temp_token: tempToken, otp_code: otpCode }),
+      cache: "no-store",
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      return {
+        success: false,
+        error: data.error || data.message || "Verification failed",
+      };
+    }
+
+    return {
+      success: data.success ?? true,
+      user: data.user,
+      message: data.message,
+    };
+  } catch (error) {
+    console.error("[API] Verify OTP error:", error);
+    return {
+      success: false,
+      error: "Failed to connect to backend. Please try again.",
+    };
+  }
+}
+
+// Resend OTP via Flask backend
+// Calls: POST ${API_BASE_URL}/login/resend
+// Request: { "temp_token": "..." }
+export async function resendOTPOnBackend(
+  tempToken: string
+): Promise<ResendOTPResponse> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/login/resend`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ temp_token: tempToken }),
+      cache: "no-store",
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      return {
+        success: false,
+        error: data.error || data.message || "Failed to resend OTP",
+      };
+    }
+
+    return {
+      success: data.success ?? true,
+      message: data.message,
+    };
+  } catch (error) {
+    console.error("[API] Resend OTP error:", error);
+    return {
+      success: false,
+      error: "Failed to connect to backend. Please try again.",
+    };
+  }
+}
+
+// ============== PASSWORD RESET TYPES ==============
+
+export interface RequestPasswordResetResponse {
+  success: boolean;
+  message?: string;
+  error?: string;
+}
+
+export interface ResetPasswordResponse {
+  success: boolean;
+  message?: string;
+  error?: string;
+}
+
+// ============== PASSWORD RESET FUNCTIONS ==============
+
+// Request password reset via Flask backend
+// Calls: POST ${API_BASE_URL}/login/forgot-password
+// Request: { "email": "..." }
+export async function requestPasswordResetOnBackend(
+  email: string
+): Promise<RequestPasswordResetResponse> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/login/forgot-password`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ email }),
+      cache: "no-store",
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      return {
+        success: false,
+        error: data.error || data.message || "Failed to request password reset",
+      };
+    }
+
+    return {
+      success: data.success ?? true,
+      message: data.message,
+    };
+  } catch (error) {
+    console.error("[API] Request password reset error:", error);
+    return {
+      success: false,
+      error: "Failed to connect to backend. Please try again.",
+    };
+  }
+}
+
+// Reset password via Flask backend
+// Calls: POST ${API_BASE_URL}/login/reset-password
+// Request: { "email": "...", "otp_code": "...", "new_password": "..." }
+export async function resetPasswordOnBackend(
+  email: string,
+  otpCode: string,
+  newPassword: string
+): Promise<ResetPasswordResponse> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/login/reset-password`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ email, otp_code: otpCode, new_password: newPassword }),
+      cache: "no-store",
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      return {
+        success: false,
+        error: data.error || data.message || "Failed to reset password",
+      };
+    }
+
+    return {
+      success: data.success ?? true,
+      message: data.message,
+    };
+  } catch (error) {
+    console.error("[API] Reset password error:", error);
+    return {
+      success: false,
+      error: "Failed to connect to backend. Please try again.",
+    };
+  }
+}
+
+// ============== ADMIN TYPES ==============
+
 export interface AdminUser {
   id: number;
   email: string;

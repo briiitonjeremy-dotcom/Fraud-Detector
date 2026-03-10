@@ -50,6 +50,8 @@ FraudGuard is a fintech web application for real-time fraud detection. The front
 - [x] Fix explain page to search localStorage for transactions before calling ML backend
 - [x] Update API test endpoints to show correct request format for CSV data
 - [x] Remove random fraud score generation - use actual ML scores
+- [x] Fix upload to use /predict endpoint instead of /process-dataset (more reliable)
+- [x] Add timeout (30s) and better error handling for upload
 
 ## Current Structure
 

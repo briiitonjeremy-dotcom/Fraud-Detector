@@ -24,12 +24,11 @@ const endpoints: EndpointTest[] = [
     name: "Fraud Prediction",
     method: "POST",
     path: "/predict",
-    description: "Predict fraud for sample transactions",
+    description: "Predict fraud for raw transaction data (CSV format)",
     requestBody: {
       transactions: [
-        { transaction_id: "TXN_001", amount: 5000, vendor_name: "TechStore", region: "US", timestamp: "2024-01-15" },
-        { transaction_id: "TXN_002", amount: 150, vendor_name: "CoffeeShop", region: "US", timestamp: "2024-01-15" },
-        { transaction_id: "TXN_003", amount: 890, vendor_name: "GroceryMart", region: "UK", timestamp: "2024-01-15" }
+        { step: 1, type: "TRANSFER", amount: 4953893.08, nameOrig: "C728984460", oldbalanceOrg: 4953893.08, newbalanceOrig: 0, nameDest: "C639921569", oldbalanceDest: 0, newbalanceDest: 4953893.08 },
+        { step: 1, type: "PAYMENT", amount: 2000, nameOrig: "C123456789", oldbalanceOrg: 10000, newbalanceOrig: 8000, nameDest: "C987654321", oldbalanceDest: 5000, newbalanceDest: 7000 }
       ]
     },
   },
@@ -39,15 +38,15 @@ const endpoints: EndpointTest[] = [
     path: "/process-dataset",
     description: "Process a CSV dataset for batch fraud detection",
     requestBody: {
-      csv_content: "transaction_id,amount,vendor_name,region,timestamp\nTXN_001,5000,TechStore,US,2024-01-15\nTXN_002,150,CoffeeShop,US,2024-01-15",
+      csv_content: "step,type,amount,nameOrig,oldbalanceOrg,newbalanceOrig,nameDest,oldbalanceDest,newbalanceDest\n1,TRANSFER,4953893.08,C728984460,4953893.08,0,C639921569,0,4953893.08\n1,PAYMENT,2000,C123456789,10000,8000,C987654321,5000,7000",
       file_name: "transactions.csv",
     },
   },
   {
     name: "Explain Transaction",
     method: "GET",
-    path: "/explain/TXN_001",
-    description: "Get SHAP-based explanation for a transaction",
+    path: "/explain/TXN_1_1",
+    description: "Get SHAP-based explanation for a transaction by ID",
   },
 ];
 
@@ -83,11 +82,21 @@ export default function ApiTestPage() {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000);
       
-      const response = await fetch(`${mlServiceUrl}/`, {
+      // Try /health endpoint first (more reliable)
+      let response = await fetch(`${mlServiceUrl}/health`, {
         method: "GET",
         headers: { "Content-Type": "application/json" },
         signal: controller.signal
       });
+      
+      // If /health fails, try root endpoint
+      if (!response.ok) {
+        response = await fetch(`${mlServiceUrl}/`, {
+          method: "GET",
+          headers: { "Content-Type": "application/json" },
+          signal: controller.signal
+        });
+      }
       
       clearTimeout(timeoutId);
       const duration = Date.now() - startTime;

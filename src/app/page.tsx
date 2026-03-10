@@ -105,6 +105,30 @@ export default function Dashboard() {
     }
   };
 
+  // Check ML service health status
+  const checkMlServiceHealth = async () => {
+    try {
+      // Try /health endpoint first (more reliable)
+      let response = await fetch(`${ML_SERVICE_URL}/health`, {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+      });
+      
+      // If /health fails, try root endpoint
+      if (!response.ok) {
+        response = await fetch(`${ML_SERVICE_URL}/`, {
+          method: "GET",
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      
+      return response.ok;
+    } catch (error) {
+      console.error("[Dashboard] ML service health check failed:", error);
+      return false;
+    }
+  };
+
   useEffect(() => {
     let mounted = true;
     
@@ -125,7 +149,7 @@ export default function Dashboard() {
           setLastUpdate(new Date().toLocaleTimeString());
         }
         
-        // Also check for stored transactions (from Explain page or Upload)
+        // Also check for stored transactions (from Upload page)
         const storedTransactions = localStorage.getItem('fraudguard_transactions');
         if (storedTransactions && mounted) {
           const txns = JSON.parse(storedTransactions);
@@ -133,11 +157,13 @@ export default function Dashboard() {
             // Get the most recent transaction (first one is most recent)
             const latestTxn = txns[0];
             setRecentTransaction({
-              id: latestTxn.transaction_id || latestTxn.nameorig || 'Unknown',
-              score: latestTxn.fraud_score !== null ? (latestTxn.fraud_score || (latestTxn.is_fraud ? 95 : Math.random() * 20)) : 0,
+              id: latestTxn.transaction_id || latestTxn.nameorig || latestTxn.nameOrig || 'Unknown',
+              score: latestTxn.fraud_score !== null && latestTxn.fraud_score !== undefined 
+                ? latestTxn.fraud_score 
+                : (latestTxn.is_fraud ? 95 : 0),
               isFraud: latestTxn.is_fraud || false,
               amount: latestTxn.amount,
-              vendor: latestTxn.nameorig || latestTxn.vendor_name
+              vendor: latestTxn.nameorig || latestTxn.nameOrig || latestTxn.vendor_name
             });
             // Store all recent transactions for display (up to 50)
             setRecentTransactions(txns.slice(0, 50));
@@ -152,24 +178,13 @@ export default function Dashboard() {
           setSavedFraudCases(cases);
         }
       } catch (e) {
-        // localStorage not available or parse error
+        console.error("[Dashboard] Error reading localStorage:", e);
       }
       
       // Then check ML service health
-      try {
-        const response = await fetch(`${ML_SERVICE_URL}/`, {
-          method: "GET",
-          headers: { "Content-Type": "application/json" },
-        });
-        if (mounted) {
-          if (response.ok) {
-            setMlStatus("online");
-          } else {
-            setMlStatus("offline");
-          }
-        }
-      } catch (error) {
-        if (mounted) setMlStatus("offline");
+      const isMlOnline = await checkMlServiceHealth();
+      if (mounted) {
+        setMlStatus(isMlOnline ? "online" : "offline");
       }
     };
     

@@ -122,22 +122,56 @@ export default function UploadPage() {
 
     const startTime = Date.now();
 
-    // Read file content for ML service
-    const fileContent = await file.text();
-
     try {
-      // Send to ML service for batch processing
-      console.log("[Upload] Sending CSV to ML service...");
-      const response = await fetch(`${ML_SERVICE_URL}/process-dataset`, {
+      // Read file content
+      const fileContent = await file.text();
+      
+      // Parse CSV into transaction objects for /predict endpoint
+      const lines = fileContent.split('\n').filter(line => line.trim());
+      const headers = lines[0].split(',').map(h => h.trim());
+      
+      // Map CSV columns to transaction format
+      const transactions: any[] = [];
+      const maxTransactions = Math.min(lines.length - 1, 1000); // Limit to 1000 transactions
+      
+      for (let i = 1; i <= maxTransactions; i++) {
+        if (!lines[i]) continue;
+        const values = lines[i].split(',').map(v => v.trim());
+        const row: any = {};
+        
+        headers.forEach((header, idx) => {
+          const value = values[idx];
+          // Convert numeric fields
+          if (['step', 'amount', 'oldbalanceOrg', 'newbalanceOrig', 'oldbalanceDest', 'newbalanceDest'].includes(header)) {
+            row[header] = parseFloat(value) || 0;
+          } else {
+            row[header] = value;
+          }
+        });
+        
+        transactions.push(row);
+      }
+
+      console.log(`[Upload] Sending ${transactions.length} transactions to ML service /predict...`);
+      
+      // Create timeout controller (30 seconds)
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000);
+      
+      // Send to ML /predict endpoint (more reliable than /process-dataset)
+      const response = await fetch(`${ML_SERVICE_URL}/predict`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "Accept": "application/json",
         },
         body: JSON.stringify({
-          csv_content: fileContent,
-          file_name: file.name,
+          transactions: transactions
         }),
+        signal: controller.signal,
       });
+      
+      clearTimeout(timeoutId);
 
       const processingTime = Date.now() - startTime;
       console.log("[Upload] Response status:", response.status);
@@ -146,33 +180,47 @@ export default function UploadPage() {
         const data = await response.json();
         console.log("[Upload] ML response data:", data);
         
-        // Extract transactions with fraud scores from ML response
-        const mlTransactions = data.predictions || data.transactions || [];
+        // Extract predictions from ML response - /predict returns predictions array
+        const predictions = data.predictions || data.results || [];
+        
+        // Map predictions to transactions with fraud scores
+        const processedTransactions = predictions.map((pred: any, index: number) => {
+          const txn = pred.transaction || pred;
+          return {
+            ...txn,
+            transaction_id: txn.transaction_id || txn.nameOrig || `TXN_${txn.step || 1}_${index + 1}`,
+            fraud_score: pred.prediction !== undefined ? pred.prediction * 100 : 
+                        (pred.fraud_score !== undefined ? pred.fraud_score : null),
+            is_fraud: pred.is_fraud !== undefined ? pred.is_fraud : 
+                     (pred.prediction !== undefined ? pred.prediction > 0.5 : false),
+          };
+        });
+        
+        // If no predictions returned, create from raw transactions
+        const finalTransactions = processedTransactions.length > 0 ? processedTransactions : transactions.map((txn: any, index: number) => ({
+          ...txn,
+          transaction_id: txn.transaction_id || txn.nameOrig || `TXN_${txn.step || 1}_${index + 1}`,
+          fraud_score: null,
+          is_fraud: false,
+        }));
         
         // Store ML-processed results in localStorage for dashboard
         try {
-          // Generate transaction IDs if not present and add fraud scores
-          const processedTransactions = mlTransactions.map((txn: any, index: number) => ({
-            ...txn,
-            transaction_id: txn.transaction_id || txn.nameOrig || `TXN_${txn.step || 1}_${index + 1}`,
-            fraud_score: txn.fraud_score !== undefined ? txn.fraud_score : 
-                        (txn.is_fraud ? 95 : (txn.prediction !== undefined ? txn.prediction * 100 : null)),
-            is_fraud: txn.is_fraud !== undefined ? txn.is_fraud : 
-                     (txn.prediction !== undefined ? txn.prediction > 0.5 : false),
-          }));
-          
           // Store processed transactions
           const existingData = localStorage.getItem('fraudguard_transactions');
           let existingTxns = existingData ? JSON.parse(existingData) : [];
-          const allTxns = [...processedTransactions, ...existingTxns];
+          const allTxns = [...finalTransactions, ...existingTxns];
           localStorage.setItem('fraudguard_transactions', JSON.stringify(allTxns));
+          
+          // Count fraud cases
+          const fraudCount = finalTransactions.filter((t: any) => t.is_fraud).length;
           
           // Store summary results
           localStorage.setItem('fraudguard_results', JSON.stringify({
-            total_transactions: data.total_transactions || processedTransactions.length,
-            fraud_detected: data.fraud_detected || processedTransactions.filter((t: any) => t.is_fraud).length,
-            fraud_rate: data.fraud_rate || (processedTransactions.filter((t: any) => t.is_fraud).length / processedTransactions.length * 100) || 0,
-            predictions: processedTransactions,
+            total_transactions: finalTransactions.length,
+            fraud_detected: fraudCount,
+            fraud_rate: finalTransactions.length > 0 ? (fraudCount / finalTransactions.length * 100) : 0,
+            predictions: finalTransactions,
             processedAt: new Date().toISOString()
           }));
         } catch (e) {
@@ -182,7 +230,11 @@ export default function UploadPage() {
         setResult({
           success: true,
           message: `Dataset uploaded and processed successfully!`,
-          data: data,
+          data: {
+            total_transactions: finalTransactions.length,
+            fraud_detected: finalTransactions.filter((t: any) => t.is_fraud).length,
+            fraud_rate: finalTransactions.length > 0 ? (finalTransactions.filter((t: any) => t.is_fraud).length / finalTransactions.length * 100) : 0
+          },
           processingTime: processingTime,
         });
       } else {
@@ -195,10 +247,16 @@ export default function UploadPage() {
       }
     } catch (error: any) {
       console.error("[Upload] Network error:", error);
+      
+      // Check if it's a timeout
+      const errorMessage = error.name === 'AbortError' ? 
+        'Request timed out. The ML service may be taking too long to process.' : 
+        error.message || 'Unable to connect to the fraud detection service';
+      
       // ML service is unavailable - show error instead of fake data
       setResult({
         success: false,
-        message: `ML Processing Offline - ${error.message || "Unable to connect to the fraud detection service"}. Please try again later.`,
+        message: `ML Processing Offline - ${errorMessage}. Please try again later.`,
       });
     }
 

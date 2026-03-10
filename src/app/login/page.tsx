@@ -3,30 +3,48 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { loginWithPassword } from "./actions";
 
-export default function AdminLogin() {
+export default function LoginPage() {
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [requiresOTP, setRequiresOTP] = useState(false);
+  const [tempToken, setTempToken] = useState("");
   const router = useRouter();
-
-  // For demo purposes - in production this should validate against backend
-  const ADMIN_PASSWORD = "admin123";
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     setLoading(true);
 
-    // Simulate authentication delay
-    await new Promise(resolve => setTimeout(resolve, 500));
+    try {
+      const formData = new FormData();
+      formData.append("email", email);
+      formData.append("password", password);
 
-    if (password === ADMIN_PASSWORD) {
-      // Store admin session
-      localStorage.setItem("admin_auth", "true");
-      router.push("/admin");
-    } else {
-      setError("Invalid password");
+      const result = await loginWithPassword(formData);
+
+      if (!result.success) {
+        setError(result.error || "Login failed");
+        setLoading(false);
+        return;
+      }
+
+      if (result.requiresOTP && result.tempToken) {
+        // Store temp token and redirect to OTP page
+        setTempToken(result.tempToken);
+        setRequiresOTP(true);
+        
+        // Store in session storage for OTP page
+        sessionStorage.setItem("login_temp_token", result.tempToken);
+        sessionStorage.setItem("login_email", result.email || "");
+        
+        router.push("/login/verify");
+      }
+    } catch (err) {
+      setError("An error occurred. Please try again.");
       setLoading(false);
     }
   };
@@ -43,19 +61,34 @@ export default function AdminLogin() {
             <span className="text-3xl">🛡️</span>
           </div>
           <h1 className="text-2xl font-bold text-white">FraudGuard AI</h1>
-          <p className="text-slate-400 mt-1">Admin Portal</p>
+          <p className="text-slate-400 mt-1">Secure Login</p>
         </div>
 
         {/* Login Card */}
         <div className="bg-slate-800/50 backdrop-blur-xl rounded-2xl border border-slate-700/50 p-8 shadow-2xl">
           <h2 className="text-xl font-semibold text-white mb-6 text-center">
-            Admin Login
+            Sign In
           </h2>
 
-          <form onSubmit={handleSubmit} className="space-y-6">
+          <form onSubmit={handleSubmit} className="space-y-5">
+            <div>
+              <label htmlFor="email" className="block text-sm font-medium text-slate-300 mb-2">
+                Email Address
+              </label>
+              <input
+                type="email"
+                id="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full px-4 py-3 bg-slate-900/50 border border-slate-600/50 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500/50 transition-all"
+                placeholder="Enter your email"
+                required
+              />
+            </div>
+
             <div>
               <label htmlFor="password" className="block text-sm font-medium text-slate-300 mb-2">
-                Admin Password
+                Password
               </label>
               <input
                 type="password"
@@ -63,9 +96,18 @@ export default function AdminLogin() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full px-4 py-3 bg-slate-900/50 border border-slate-600/50 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500/50 transition-all"
-                placeholder="Enter admin password"
+                placeholder="Enter your password"
                 required
               />
+            </div>
+
+            <div className="flex items-center justify-between">
+              <Link 
+                href="/login/forgot-password" 
+                className="text-sm text-cyan-400 hover:text-cyan-300 transition-colors"
+              >
+                Forgot Password?
+              </Link>
             </div>
 
             {error && (
@@ -85,15 +127,21 @@ export default function AdminLogin() {
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                   </svg>
-                  Authenticating...
+                  Verifying...
                 </span>
               ) : (
-                "Login"
+                "Continue"
               )}
             </button>
           </form>
 
-          <div className="mt-6 text-center">
+          <div className="mt-6 pt-6 border-t border-slate-700/50 text-center">
+            <p className="text-slate-400 text-sm">
+              Contact your administrator to get access credentials
+            </p>
+          </div>
+
+          <div className="mt-4 text-center">
             <Link 
               href="/" 
               className="text-sm text-slate-400 hover:text-cyan-400 transition-colors"
@@ -103,9 +151,9 @@ export default function AdminLogin() {
           </div>
         </div>
 
-        {/* Demo hint */}
-        <p className="text-center text-slate-500 text-sm mt-6">
-          Demo password: admin123
+        {/* Security note */}
+        <p className="text-center text-slate-500 text-xs mt-6">
+          🔒 Protected by Two-Factor Authentication
         </p>
       </div>
     </div>

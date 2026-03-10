@@ -5,13 +5,27 @@ export const users = sqliteTable("users", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   email: text("email").notNull().unique(),
   name: text("name").notNull(),
-  role: text("role").notNull().default("user"), // user, investigator, admin
+  role: text("role").notNull().default("viewer"), // admin, analyst, viewer
   passwordHash: text("password_hash"),
   isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
   lastLogin: integer("last_login", { mode: "timestamp" }),
   loginAttempts: integer("login_attempts").notNull().default(0),
+  lockedUntil: integer("locked_until", { mode: "timestamp" }),
+  createdBy: integer("created_by"),
   createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
   updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+});
+
+// OTP codes table for two-factor authentication
+export const otpCodes = sqliteTable("otp_codes", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("user_id").notNull().references(() => users.id),
+  code: text("code").notNull(),
+  type: text("type").notNull().default("login"), // login, password_reset
+  expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+  usedAt: integer("used_at", { mode: "timestamp" }),
+  attempts: integer("attempts").notNull().default(0),
+  createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
 });
 
 // Transactions table for fraud detection

@@ -3,6 +3,49 @@
 import { db } from "@/db";
 import { users, transactions, adminLogs, datasets } from "@/db/schema";
 import { eq, desc, gte, sql, and } from "drizzle-orm";
+import { createUser, resetUserPassword, hashPassword } from "@/lib/auth";
+
+// Seed initial admin user if none exists
+export async function seedAdminUser() {
+  try {
+    const existingAdmins = await db
+      .select()
+      .from(users)
+      .where(eq(users.role, "admin"))
+      .limit(1);
+
+    if (existingAdmins.length > 0) {
+      return { success: true, message: "Admin already exists" };
+    }
+
+    // Create admin user with hashed password
+    const adminPassword = "Admin@123";
+    const passwordHash = await hashPassword(adminPassword);
+
+    const result = await db.insert(users).values({
+      email: "admin@fraudguard.ai",
+      name: "System Admin",
+      role: "admin",
+      passwordHash,
+      isActive: true,
+      loginAttempts: 0,
+    }).returning();
+
+    await logAdminAction(result[0].id, "SEED_ADMIN", "Initial admin user created", "user", String(result[0].id));
+
+    return {
+      success: true,
+      message: "Admin user created",
+      credentials: {
+        email: "admin@fraudguard.ai",
+        password: adminPassword,
+      },
+    };
+  } catch (error) {
+    console.error("Error seeding admin:", error);
+    return { success: false, error: String(error) };
+  }
+}
 
 // Get all users
 export async function getUsers() {
@@ -14,30 +57,43 @@ export async function getUsers() {
   }
 }
 
-// Add a new user
-export async function addUser(email: string, name: string, role: string, password: string) {
+// Add a new user (admin only with password hashing)
+export async function addUser(email: string, name: string, role: string, adminId: number) {
   try {
-    const result = await db.insert(users).values({
-      email,
-      name,
-      role,
-      passwordHash: password,
-      isActive: true,
-      loginAttempts: 0,
-    }).returning();
-    await logAdminAction("ADD_USER", `Added user: ${email} with role: ${role}`);
-    return { success: true, user: result[0] };
+    const result = await createUser(email, name, role, adminId);
+    
+    if (result.success) {
+      await logAdminAction(adminId, "ADD_USER", `Added user: ${email} with role: ${role}`, "user", String(result.user?.id));
+    }
+    
+    return result;
   } catch (error) {
     console.error("Error adding user:", error);
     return { success: false, error: String(error) };
   }
 }
 
+// Reset user password (admin only)
+export async function resetPassword(userId: number, adminId: number) {
+  try {
+    const result = await resetUserPassword(userId, adminId);
+    
+    if (result.success) {
+      await logAdminAction(adminId, "RESET_PASSWORD", `Reset password for user ${userId}`, "user", String(userId));
+    }
+    
+    return result;
+  } catch (error) {
+    console.error("Error resetting password:", error);
+    return { success: false, error: String(error) };
+  }
+}
+
 // Update user role
-export async function updateUserRole(userId: number, newRole: string) {
+export async function updateUserRole(userId: number, newRole: string, adminId: number = 1) {
   try {
     await db.update(users).set({ role: newRole }).where(eq(users.id, userId));
-    await logAdminAction("UPDATE_USER_ROLE", `Updated user ${userId} role to: ${newRole}`);
+    await logAdminAction(adminId, "UPDATE_USER_ROLE", `Updated user ${userId} role to: ${newRole}`, "user", String(userId));
     return { success: true };
   } catch (error) {
     console.error("Error updating user role:", error);
@@ -46,10 +102,10 @@ export async function updateUserRole(userId: number, newRole: string) {
 }
 
 // Toggle user active status
-export async function toggleUserStatus(userId: number, isActive: boolean) {
+export async function toggleUserStatus(userId: number, isActive: boolean, adminId: number = 1) {
   try {
     await db.update(users).set({ isActive }).where(eq(users.id, userId));
-    await logAdminAction(isActive ? "ACTIVATE_USER" : "DEACTIVATE_USER", `User ${userId} ${isActive ? 'activated' : 'deactivated'}`);
+    await logAdminAction(adminId, isActive ? "ACTIVATE_USER" : "DEACTIVATE_USER", `User ${userId} ${isActive ? 'activated' : 'deactivated'}`, "user", String(userId));
     return { success: true };
   } catch (error) {
     console.error("Error toggling user status:", error);
@@ -58,10 +114,10 @@ export async function toggleUserStatus(userId: number, isActive: boolean) {
 }
 
 // Delete user
-export async function deleteUser(userId: number) {
+export async function deleteUser(userId: number, adminId: number = 1) {
   try {
     await db.delete(users).where(eq(users.id, userId));
-    await logAdminAction("DELETE_USER", `Deleted user: ${userId}`);
+    await logAdminAction(adminId, "DELETE_USER", `Deleted user: ${userId}`, "user", String(userId));
     return { success: true };
   } catch (error) {
     console.error("Error deleting user:", error);
@@ -83,10 +139,10 @@ export async function getTransactions(minFraudScore?: number) {
 }
 
 // Mark transaction as reviewed
-export async function markTransactionReviewed(transactionId: number) {
+export async function markTransactionReviewed(transactionId: number, adminId: number = 1) {
   try {
     await db.update(transactions).set({ isReviewed: true }).where(eq(transactions.id, transactionId));
-    await logAdminAction("MARK_REVIEWED", `Transaction ${transactionId} marked as reviewed`);
+    await logAdminAction(adminId, "MARK_REVIEWED", `Transaction ${transactionId} marked as reviewed`, "transaction", String(transactionId));
     return { success: true };
   } catch (error) {
     console.error("Error marking transaction:", error);
@@ -95,10 +151,10 @@ export async function markTransactionReviewed(transactionId: number) {
 }
 
 // Escalate transaction
-export async function escalateTransaction(transactionId: number) {
+export async function escalateTransaction(transactionId: number, adminId: number = 1) {
   try {
     await db.update(transactions).set({ isEscalated: true }).where(eq(transactions.id, transactionId));
-    await logAdminAction("ESCALATE_TRANSACTION", `Transaction ${transactionId} escalated`);
+    await logAdminAction(adminId, "ESCALATE_TRANSACTION", `Transaction ${transactionId} escalated`, "transaction", String(transactionId));
     return { success: true };
   } catch (error) {
     console.error("Error escalating transaction:", error);
@@ -117,11 +173,19 @@ export async function getAdminLogs(limit: number = 50) {
 }
 
 // Log admin action
-export async function logAdminAction(action: string, details: string) {
+export async function logAdminAction(
+  adminId: number,
+  action: string,
+  details: string,
+  targetType?: string,
+  targetId?: string
+) {
   try {
     await db.insert(adminLogs).values({
-      adminId: 1,
+      adminId,
       action,
+      targetType,
+      targetId,
       details,
     });
   } catch (error) {
@@ -186,12 +250,12 @@ export async function getVendorStats() {
 }
 
 // Delete all data
-export async function clearAllData() {
+export async function clearAllData(adminId: number = 1) {
   try {
     await db.delete(adminLogs);
     await db.delete(transactions);
     await db.delete(datasets);
-    await logAdminAction("CLEAR_DATA", "All data cleared");
+    await logAdminAction(adminId, "CLEAR_DATA", "All data cleared", "system");
     return { success: true };
   } catch (error) {
     console.error("Error clearing data:", error);

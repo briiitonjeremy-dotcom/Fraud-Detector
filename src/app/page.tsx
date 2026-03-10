@@ -13,6 +13,7 @@ const navItems = [
   { href: "/explain", icon: "⟁", label: "Explain", active: false },
   { href: "/api-test", icon: "⚡", label: "API Test", active: false },
   { href: "/admin", icon: "⚙", label: "Admin", active: false },
+  { href: "/login", icon: "🔐", label: "Login", active: false },
 ];
 
 // Demo data for when ML service is unavailable

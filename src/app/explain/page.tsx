@@ -40,8 +40,7 @@ export default function ExplainPage() {
     { href: "/upload", icon: "📤", label: "Upload Dataset", active: false },
     { href: "/explain", icon: "🔍", label: "Explain", active: true },
     { href: "/api-test", icon: "🧪", label: "API Test", active: false },
-    // Admin link only visible to admins
-    ...(userRole === "admin" ? [{ href: "/admin", icon: "⚙", label: "Admin", active: false }] : []),
+    { href: "/admin", icon: "⚙", label: "Admin", active: false },
     // Show Login or Logout based on auth status
     loggedIn 
       ? { href: "#", icon: "🚪", label: "Logout", active: false, onClick: () => { logout(); window.location.href = "/"; } }

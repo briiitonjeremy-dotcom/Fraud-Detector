@@ -82,14 +82,13 @@ export default function ApiTestPage() {
     return isLoggedIn();
   });
 
-  // Dynamic navigation items based on user role
+  // Dynamic navigation items - Admin always visible
   const navItems = [
     { href: "/", icon: "⬡", label: "Dashboard", active: false },
     { href: "/upload", icon: "⇪", label: "Upload Dataset", active: false },
     { href: "/explain", icon: "⟁", label: "Explain", active: false },
     { href: "/api-test", icon: "⚡", label: "API Test", active: true },
-    // Admin link only visible to admins
-    ...(userRole === "admin" ? [{ href: "/admin", icon: "⚙", label: "Admin", active: false }] : []),
+    { href: "/admin", icon: "⚙", label: "Admin", active: false },
     // Show Login or Logout based on auth status
     loggedIn 
       ? { href: "#", icon: "🚪", label: "Logout", active: false, onClick: () => { logout(); window.location.href = "/"; } }

@@ -60,15 +60,10 @@ export default function AdminPage() {
   // New user form
   const [newUserForm, setNewUserForm] = useState({ email: "", name: "", role: "viewer", password: "" });
 
+  // Skip authorization check - allow all users
   // Check authorization on mount
   useEffect(() => {
-    // Check if user is admin
-    const adminStatus = isAdmin();
-    if (!adminStatus) {
-      // Not admin - redirect to dashboard
-      router.push("/?unauthorized=true");
-      return;
-    }
+    // Allow all users to access admin
     setAuthorized(true);
   }, [router]);
 

@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
+import { isAdmin, isLoggedIn, logout, getUserRole } from "@/lib/api";
 
 const ML_SERVICE_URL = "https://ml-file-for-url.onrender.com";
 
@@ -31,7 +32,29 @@ export default function UploadPage() {
   const [mlStatus, setMlStatus] = useState<"loading" | "online" | "offline">("loading");
   const [errorType, setErrorType] = useState<ErrorType>("none");
   const [uploadProgress, setUploadProgress] = useState<string>("");
+  const [userRole, setUserRole] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null;
+    return isAdmin() ? "admin" : (getUserRole() || null);
+  });
+  const [loggedIn, setLoggedIn] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return isLoggedIn();
+  });
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Dynamic navigation items based on user role
+  const navItems = [
+    { href: "/", icon: "📊", label: "Dashboard", active: false },
+    { href: "/upload", icon: "📤", label: "Upload Dataset", active: true },
+    { href: "/explain", icon: "🔍", label: "Explain", active: false },
+    { href: "/api-test", icon: "🧪", label: "API Test", active: false },
+    // Admin link only visible to admins
+    ...(userRole === "admin" ? [{ href: "/admin", icon: "⚙", label: "Admin", active: false }] : []),
+    // Show Login or Logout based on auth status
+    loggedIn 
+      ? { href: "#", icon: "🚪", label: "Logout", active: false, onClick: () => { logout(); window.location.href = "/"; } }
+      : { href: "/login", icon: "🔐", label: "Login", active: false },
+  ];
 
   // Check ML service health status on mount
   useEffect(() => {

@@ -2,15 +2,11 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { isAdmin, isLoggedIn, logout, getUserRole } from "@/lib/api";
 
 const ML_SERVICE_URL = "https://ml-file-for-url.onrender.com";
 
-const navItems = [
-  { href: "/", icon: "📊", label: "Dashboard", active: false },
-  { href: "/upload", icon: "📤", label: "Upload Dataset", active: false },
-  { href: "/explain", icon: "🔍", label: "Explain", active: true },
-  { href: "/api-test", icon: "🧪", label: "API Test", active: false },
-];
+// Dynamic navItems will be set in component
 
 interface ExplainResult {
   success: boolean;
@@ -29,6 +25,28 @@ export default function ExplainPage() {
   const [error, setError] = useState<string | null>(null);
   const [savedToDb, setSavedToDb] = useState(false);
   const [mlStatus, setMlStatus] = useState<"loading" | "online" | "offline">("loading");
+  const [userRole, setUserRole] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null;
+    return isAdmin() ? "admin" : (getUserRole() || null);
+  });
+  const [loggedIn, setLoggedIn] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return isLoggedIn();
+  });
+
+  // Dynamic navigation items based on user role
+  const navItems = [
+    { href: "/", icon: "📊", label: "Dashboard", active: false },
+    { href: "/upload", icon: "📤", label: "Upload Dataset", active: false },
+    { href: "/explain", icon: "🔍", label: "Explain", active: true },
+    { href: "/api-test", icon: "🧪", label: "API Test", active: false },
+    // Admin link only visible to admins
+    ...(userRole === "admin" ? [{ href: "/admin", icon: "⚙", label: "Admin", active: false }] : []),
+    // Show Login or Logout based on auth status
+    loggedIn 
+      ? { href: "#", icon: "🚪", label: "Logout", active: false, onClick: () => { logout(); window.location.href = "/"; } }
+      : { href: "/login", icon: "🔐", label: "Login", active: false },
+  ];
 
   // Check ML service health status on mount
   useEffect(() => {

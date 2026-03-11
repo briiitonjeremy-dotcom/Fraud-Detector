@@ -10,6 +10,7 @@ import {
   addUserToBackend,
   deleteUserFromBackend,
   toggleUserStatusBackend,
+  isAdmin,
   AdminUser,
   AdminTransaction,
   AdminLog,
@@ -30,10 +31,11 @@ interface ApiStatus {
 export default function AdminPage() {
   const router = useRouter();
   
-  // ALL HOOKS MUST BE CALLED BEFORE ANY EARLY RETURNS
+  // ALL HOOKS MUST BE CALLED BEFORE ANY CONDITIONAL RETURNS
   const [activeTab, setActiveTab] = useState<TabType>("dashboard");
   const [isLoading, setIsLoading] = useState(false);
   const [apiStatus, setApiStatus] = useState<ApiStatus>({ status: "offline", latency: 0, lastChecked: new Date() });
+  const [authorized, setAuthorized] = useState(false);
   
   // User management state
   const [usersList, setUsersList] = useState<AdminUser[]>([]);
@@ -57,6 +59,18 @@ export default function AdminPage() {
 
   // New user form
   const [newUserForm, setNewUserForm] = useState({ email: "", name: "", role: "viewer", password: "" });
+
+  // Check authorization on mount
+  useEffect(() => {
+    // Check if user is admin
+    const adminStatus = isAdmin();
+    if (!adminStatus) {
+      // Not admin - redirect to dashboard
+      router.push("/?unauthorized=true");
+      return;
+    }
+    setAuthorized(true);
+  }, [router]);
 
   // Check API status
   const checkApiStatus = useCallback(async () => {
@@ -112,6 +126,11 @@ export default function AdminPage() {
     
     return () => clearInterval(interval);
   }, [checkApiStatus, loadAllData]);
+
+  // Don't render anything if not authorized
+  if (!authorized) {
+    return null;
+  }
 
   // Add new user
   const handleAddUser = async () => {

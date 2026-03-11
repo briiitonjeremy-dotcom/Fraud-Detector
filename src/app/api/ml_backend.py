@@ -1,16 +1,21 @@
 """
-FraudGuard ML Backend - Optimized Flask Application
+FraudGuard ML Backend - Complete Flask Application
 Features:
 - Model loaded once at startup (not per request)
 - Batch processing (250-500 rows)
 - Comprehensive logging
 - Optimized for larger datasets
+- Authentication with role-based access control
+- Admin user management
 """
 
 import os
 import logging
 import time
-from flask import Flask, request, jsonify
+import uuid
+import hashlib
+from functools import wraps
+from flask import Flask, request, jsonify, g
 from flask_cors import CORS
 import pandas as pd
 import numpy as np
@@ -25,6 +30,9 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 CORS(app)
 
+# Secret key for sessions (in production, use environment variable)
+app.secret_key = os.environ.get('SECRET_KEY', 'fraudguard-secret-key-change-in-production')
+
 # Global variables for model and feature columns (loaded once at startup)
 MODEL = None
 FEATURE_COLUMNS = None
@@ -33,6 +41,132 @@ MODEL_LOADED = False
 # Batch size for processing
 BATCH_SIZE = 250
 
+# ============== IN-MEMORY USER DATABASE ==============
+# In production, use a real database (PostgreSQL, MySQL, etc.)
+# This is a simplified in-memory store for demonstration
+USERS_DB = {
+    1: {
+        'id': 1,
+        'email': 'admin@fraudguard.com',
+        'name': 'Admin User',
+        'password_hash': hashlib.sha256('admin123'.encode()).hexdigest(),
+        'role': 'admin',
+        'is_active': True,
+        'created_at': '2024-01-01T00:00:00'
+    },
+    2: {
+        'id': 2,
+        'email': 'user@fraudguard.com',
+        'name': 'Regular User',
+        'password_hash': hashlib.sha256('user123'.encode()).hexdigest(),
+        'role': 'user',
+        'is_active': True,
+        'created_at': '2024-01-01T00:00:00'
+    }
+}
+
+# Next user ID
+NEXT_USER_ID = 3
+
+# In-memory session store (in production, use Redis or database)
+SESSIONS = {}
+
+# In-memory transactions store
+TRANSACTIONS_DB = []
+
+# In-memory logs store
+ADMIN_LOGS = []
+
+
+# ============== AUTHENTICATION HELPERS ==============
+
+def hash_password(password):
+    """Hash a password using SHA256."""
+    return hashlib.sha256(password.encode()).hexdigest()
+
+
+def create_session(user):
+    """Create a session for a user."""
+    session_token = str(uuid.uuid4())
+    SESSIONS[session_token] = {
+        'user_id': user['id'],
+        'email': user['email'],
+        'role': user['role'],
+        'name': user['name'],
+        'created_at': time.time()
+    }
+    return session_token
+
+
+def get_session(token):
+    """Get session by token."""
+    if token in SESSIONS:
+        session = SESSIONS[token]
+        # Check if session is not expired (24 hours)
+        if time.time() - session['created_at'] < 86400:
+            return session
+        Expired - else:
+            # remove
+            del SESSIONS[token]
+    return None
+
+
+def get_user_from_session():
+    """Get current user from Authorization header."""
+    auth_header = request.headers.get('Authorization')
+    if not auth_header:
+        return None
+    
+    # Check for Bearer token
+    if auth_header.startswith('Bearer '):
+        token = auth_header[7:]
+        return get_session(token)
+    
+    return None
+
+
+def require_auth(f):
+    """Decorator to require authentication."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        user = get_user_from_session()
+        if not user:
+            return jsonify({'error': 'Unauthorized', 'message': 'Authentication required'}), 401
+        g.current_user = user
+        return f(*args, **kwargs)
+    return decorated
+
+
+def require_admin(f):
+    """Decorator to require admin role."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        user = get_user_from_session()
+        if not user:
+            return jsonify({'error': 'Unauthorized', 'message': 'Authentication required'}), 401
+        if user.get('role') != 'admin':
+            return jsonify({'error': 'Forbidden', 'message': 'Admin access required'}), 403
+        g.current_user = user
+        return f(*args, **kwargs)
+    return decorated
+
+
+def log_admin_action(action, target_type=None, target_id=None, details=None):
+    """Log an admin action."""
+    log_entry = {
+        'id': len(ADMIN_LOGS) + 1,
+        'admin_id': g.current_user.get('id') if hasattr(g, 'current_user') else None,
+        'action': action,
+        'target_type': target_type,
+        'target_id': str(target_id) if target_id else None,
+        'details': details,
+        'created_at': time.strftime('%Y-%m-%dT%H:%M:%S')
+    }
+    ADMIN_LOGS.append(log_entry)
+    return log_entry
+
+
+# ============== MODEL LOADING ==============
 
 def load_model():
     """
@@ -142,6 +276,8 @@ def predict_batch(features_scaled):
         return None, None
 
 
+# ============== ROUTES ==============
+
 @app.route('/', methods=['GET'])
 def index():
     """Health check endpoint - returns basic info."""
@@ -163,7 +299,97 @@ def health():
     })
 
 
+# ============== AUTHENTICATION ROUTES ==============
+
+@app.route('/login', methods=['POST'])
+def login():
+    """
+    Login endpoint.
+    Request: { "email": "...", "password": "..." }
+    Response: { "message": "Login successful", "user": { "id": 1, "email": "...", "name": "...", "role": "admin" } }
+    """
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        email = data.get('email', '').lower().strip()
+        password = data.get('password', '')
+        
+        if not email or not password:
+            return jsonify({'error': 'Email and password are required'}), 400
+        
+        # Find user by email
+        user = None
+        for u in USERS_DB.values():
+            if u['email'].lower() == email:
+                user = u
+                break
+        
+        if not user:
+            return jsonify({'error': 'Invalid credentials'}), 401
+        
+        # Check password
+        password_hash = hash_password(password)
+        if user['password_hash'] != password_hash:
+            return jsonify({'error': 'Invalid credentials'}), 401
+        
+        # Check if user is active
+        if not user.get('is_active', True):
+            return jsonify({'error': 'Account is disabled'}), 403
+        
+        # Create session
+        session_token = create_session(user)
+        
+        return jsonify({
+            'message': 'Login successful',
+            'user': {
+                'id': user['id'],
+                'email': user['email'],
+                'name': user['name'],
+                'role': user['role']
+            },
+            'session_token': session_token
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in /login: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/logout', methods=['POST'])
+@require_auth
+def logout():
+    """Logout endpoint - invalidates the session."""
+    auth_header = request.headers.get('Authorization', '')
+    if auth_header.startswith('Bearer '):
+        token = auth_header[7:]
+        if token in SESSIONS:
+            del SESSIONS[token]
+    
+    return jsonify({'message': 'Logged out successfully'})
+
+
+@app.route('/me', methods=['GET'])
+@require_auth
+def get_current_user():
+    """Get current user info."""
+    user = g.current_user
+    return jsonify({
+        'user': {
+            'id': user.get('id'),
+            'email': user.get('email'),
+            'name': user.get('name'),
+            'role': user.get('role')
+        }
+    })
+
+
+# ============== ML PREDICTION ROUTES ==============
+
 @app.route('/predict', methods=['POST'])
+@require_auth
 def predict():
     """
     Main prediction endpoint.
@@ -175,6 +401,7 @@ def predict():
     # Log request received
     logger.info("=" * 60)
     logger.info("REQUEST RECEIVED: /predict")
+    logger.info(f"User: {g.current_user.get('email')} ({g.current_user.get('role')})")
     logger.info("=" * 60)
     
     try:
@@ -270,6 +497,7 @@ def predict():
 
 
 @app.route('/process-dataset', methods=['POST'])
+@require_auth
 def process_dataset():
     """
     Alternative endpoint for processing CSV content directly.
@@ -277,7 +505,7 @@ def process_dataset():
     """
     request_start = time.time()
     
-    logger.info("REQUEST RECEIVED: /process-dataset")
+    logger.info(f"REQUEST RECEIVED: /process-dataset (User: {g.current_user.get('email')})")
     
     try:
         data = request.get_json()
@@ -304,6 +532,7 @@ def process_dataset():
         transactions = df.to_dict('records')
         
         # Use /predict logic
+        # We'll call predict directly by setting up the request
         request.json = {'transactions': transactions}
         
         return predict()
@@ -312,6 +541,199 @@ def process_dataset():
         logger.error(f"Error in /process-dataset: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
+
+# ============== ADMIN ROUTES (PROTECTED) ==============
+
+@app.route('/admin/users', methods=['GET'])
+@require_admin
+def admin_get_users():
+    """
+    Get all users (admin only).
+    Requires admin role.
+    """
+    log_admin_action('view_users', 'system', None, 'Viewed user list')
+    
+    users = []
+    for u in USERS_DB.values():
+        users.append({
+            'id': u['id'],
+            'email': u['email'],
+            'name': u['name'],
+            'role': u['role'],
+            'is_active': u.get('is_active', True),
+            'created_at': u.get('created_at')
+        })
+    
+    return jsonify({'users': users})
+
+
+@app.route('/admin/users', methods=['POST'])
+@require_admin
+def admin_create_user():
+    """
+    Create a new user (admin only).
+    Requires admin role.
+    """
+    global NEXT_USER_ID
+    
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        email = data.get('email', '').lower().strip()
+        password = data.get('password', '')
+        name = data.get('name', '')
+        role = data.get('role', 'user')  # Default to 'user', not 'admin'
+        
+        if not email or not password or not name:
+            return jsonify({'error': 'Email, name, and password are required'}), 400
+        
+        # Validate role
+        if role not in ['admin', 'user', 'analyst', 'viewer']:
+            return jsonify({'error': 'Invalid role'}), 400
+        
+        # Check if email already exists
+        for u in USERS_DB.values():
+            if u['email'].lower() == email:
+                return jsonify({'error': 'Email already exists'}), 400
+        
+        # Create user
+        new_user = {
+            'id': NEXT_USER_ID,
+            'email': email,
+            'name': name,
+            'password_hash': hash_password(password),
+            'role': role,
+            'is_active': True,
+            'created_at': time.strftime('%Y-%m-%dT%H:%M:%S')
+        }
+        
+        USERS_DB[NEXT_USER_ID] = new_user
+        NEXT_USER_ID += 1
+        
+        log_admin_action('create_user', 'user', new_user['id'], f'Created user: {email} with role: {role}')
+        
+        return jsonify({
+            'message': 'User created successfully',
+            'user': {
+                'id': new_user['id'],
+                'email': new_user['email'],
+                'name': new_user['name'],
+                'role': new_user['role']
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"Error creating user: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/admin/users/<int:user_id>', methods=['DELETE'])
+@require_admin
+def admin_delete_user(user_id):
+    """
+    Delete a user (admin only).
+    Requires admin role.
+    Cannot delete yourself.
+    """
+    # Get current admin user
+    admin_user = g.current_user
+    
+    # Check if trying to delete yourself
+    if user_id == admin_user.get('user_id'):
+        return jsonify({'error': 'Cannot delete your own account'}), 400
+    
+    if user_id not in USERS_DB:
+        return jsonify({'error': 'User not found'}), 404
+    
+    user = USERS_DB[user_id]
+    user_email = user['email']
+    
+    del USERS_DB[user_id]
+    
+    log_admin_action('delete_user', 'user', user_id, f'Deleted user: {user_email}')
+    
+    return jsonify({'message': 'User deleted successfully'})
+
+
+@app.route('/admin/users/<int:user_id>/status', methods=['PUT'])
+@require_admin
+def admin_toggle_user_status(user_id):
+    """
+    Toggle user active status (admin only).
+    Requires admin role.
+    """
+    try:
+        data = request.get_json()
+        is_active = data.get('is_active', True)
+        
+        if user_id not in USERS_DB:
+            return jsonify({'error': 'User not found'}), 404
+        
+        # Check if trying to deactivate yourself
+        admin_user = g.current_user
+        if user_id == admin_user.get('user_id'):
+            return jsonify({'error': 'Cannot deactivate your own account'}), 400
+        
+        USERS_DB[user_id]['is_active'] = is_active
+        
+        log_admin_action('toggle_user_status', 'user', user_id, 
+                        f'Set active={is_active} for user ID: {user_id}')
+        
+        return jsonify({'message': 'User status updated successfully'})
+        
+    except Exception as e:
+        logger.error(f"Error toggling user status: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/admin/transactions', methods=['GET'])
+@require_admin
+def admin_get_transactions():
+    """
+    Get all transactions (admin only).
+    Requires admin role.
+    """
+    # Return in-memory transactions or mock data
+    transactions = TRANSACTIONS_DB if TRANSACTIONS_DB else []
+    
+    log_admin_action('view_transactions', 'system', None, 'Viewed transaction list')
+    
+    return jsonify({'transactions': transactions})
+
+
+@app.route('/admin/stats', methods=['GET'])
+@require_admin
+def admin_get_stats():
+    """
+    Get admin statistics (admin only).
+    Requires admin role.
+    """
+    stats = {
+        'total_users': len(USERS_DB),
+        'total_transactions': len(TRANSACTIONS_DB),
+        'total_logs': len(ADMIN_LOGS),
+        'flagged_transactions': len([t for t in TRANSACTIONS_DB if t.get('is_fraud', False)])
+    }
+    
+    return jsonify({'stats': stats})
+
+
+@app.route('/admin/logs', methods=['GET'])
+@require_admin
+def admin_get_logs():
+    """
+    Get admin logs (admin only).
+    Requires admin role.
+    """
+    logs = ADMIN_LOGS[-100:]  # Last 100 logs
+    
+    return jsonify({'logs': logs})
+
+
+# ============== MAIN ==============
 
 # Load model when app starts
 if __name__ == '__main__':

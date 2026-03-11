@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
+import { isAdmin, isLoggedIn, logout, getUser, getUserRole } from "@/lib/api";
 
 // ML Service URL - from Render
 const ML_SERVICE_URL = "https://ml-file-for-url.onrender.com";
@@ -36,7 +37,28 @@ export default function Dashboard() {
   const [recentTransactions, setRecentTransactions] = useState<{transaction_id: string, amount: number, vendor_name?: string, fraud_score?: number | null, is_fraud?: boolean, nameorig?: string, nameDest?: string}[]>([]);
   const [savedFraudCases, setSavedFraudCases] = useState<{transaction_id: string, amount: number, fraud_score: number, savedAt: string, nameorig?: string, nameDest?: string}[]>([]);
   const [saveStatus, setSaveStatus] = useState<{saving: boolean, message: string}>({saving: false, message: ""});
-  const isMounted = useCallback(() => { let mounted = true; return () => { mounted = false; }; }, []);
+  const [userRole, setUserRole] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null;
+    return isAdmin() ? "admin" : (localStorage.getItem("userRole") || null);
+  });
+  const [loggedIn, setLoggedIn] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return !!localStorage.getItem("session_token");
+  });
+
+  // Dynamic navigation items based on user role
+  const navItems = [
+    { href: "/", icon: "⬡", label: "Dashboard", active: true },
+    { href: "/upload", icon: "⇪", label: "Upload Dataset", active: false },
+    { href: "/explain", icon: "⟁", label: "Explain", active: false },
+    { href: "/api-test", icon: "⚡", label: "API Test", active: false },
+    // Admin link only visible to admins
+    ...(userRole === "admin" ? [{ href: "/admin", icon: "⚙", label: "Admin", active: false }] : []),
+    // Show Login or Logout based on auth status
+    loggedIn 
+      ? { href: "#", icon: "🚪", label: "Logout", active: false, onClick: () => { logout(); window.location.href = "/"; } }
+      : { href: "/login", icon: "🔐", label: "Login", active: false },
+  ];
 
   // Handle clearing all data
   const handleClearData = () => {
@@ -204,19 +226,53 @@ export default function Dashboard() {
         
         <nav className="sidebar-nav">
           {navItems.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`nav-item ${item.active ? "active" : ""}`}
-            >
-              <span className="nav-icon">{item.icon}</span>
-              <span>{item.label}</span>
-            </Link>
+            item.onClick ? (
+              <button
+                key={item.label}
+                onClick={item.onClick}
+                className={`nav-item ${item.active ? "active" : ""}`}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', width: '100%', textAlign: 'left' }}
+              >
+                <span className="nav-icon">{item.icon}</span>
+                <span>{item.label}</span>
+              </button>
+            ) : (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`nav-item ${item.active ? "active" : ""}`}
+              >
+                <span className="nav-icon">{item.icon}</span>
+                <span>{item.label}</span>
+              </Link>
+            )
           ))}
         </nav>
 
         {/* Sidebar Footer */}
         <div style={{ marginTop: "auto", paddingTop: "2rem" }}>
+          {/* User Role Display */}
+          {loggedIn && (
+            <div style={{ 
+              padding: "1rem", 
+              marginBottom: "1rem",
+              background: userRole === "admin" ? "rgba(168, 85, 247, 0.1)" : userRole === "analyst" ? "rgba(59, 130, 246, 0.1)" : "rgba(34, 197, 94, 0.1)", 
+              borderRadius: "12px", 
+              border: `1px solid ${userRole === "admin" ? "rgba(168, 85, 247, 0.3)" : userRole === "analyst" ? "rgba(59, 130, 246, 0.3)" : "rgba(34, 197, 94, 0.3)"}`
+            }}>
+              <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.5rem" }}>LOGGED IN AS</div>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                <span style={{ 
+                  fontSize: "0.875rem", 
+                  fontWeight: "bold",
+                  color: userRole === "admin" ? "#a855f7" : userRole === "analyst" ? "#3b82f6" : "#22c55e",
+                  textTransform: "capitalize"
+                }}>
+                  {userRole}
+                </span>
+              </div>
+            </div>
+          )}
           <div style={{ 
             padding: "1rem", 
             background: "rgba(59, 130, 246, 0.1)", 

@@ -52,7 +52,7 @@ export interface ResendOTPResponse {
 // Login via Flask backend
 // Calls: POST ${API_BASE_URL}/login
 // Request: { "email": "...", "password": "..." }
-// Success Response: { "message": "Login successful" }
+// Success Response: { "message": "Login successful", "user": { "id": 1, "email": "...", "name": "...", "role": "admin" }, "session_token": "..." }
 // Failure Response: { "error": "Invalid credentials" } or { "error": "User not found" }
 export async function loginToBackend(
   email: string,
@@ -72,11 +72,20 @@ export async function loginToBackend(
 
     // Check for successful login by message
     if (response.ok && data.message === "Login successful") {
-      // Login succeeded - Flask backend returns just a message
-      // For now, treat as successful login (could be extended to handle OTP later)
+      // Login succeeded - Flask backend returns user info and session token
+      // Store user info and session in localStorage
+      if (data.user) {
+        localStorage.setItem("user", JSON.stringify(data.user));
+        localStorage.setItem("userRole", data.user.role || "user");
+      }
+      if (data.session_token) {
+        localStorage.setItem("session_token", data.session_token);
+      }
+      
       return {
         success: true,
         message: data.message,
+        user: data.user,
         // If backend returns requires_otp and temp_token, use them
         // Otherwise, assume direct login success
         requires_otp: data.requires_otp ?? false,
@@ -312,11 +321,13 @@ export async function safeFetch<T>(
   options?: RequestInit
 ): Promise<T | null> {
   try {
+    const sessionToken = localStorage.getItem("session_token");
     const response = await fetch(url, {
       ...options,
       cache: "no-store",
       headers: {
         "Content-Type": "application/json",
+        ...(sessionToken ? { "Authorization": `Bearer ${sessionToken}` } : {}),
         ...options?.headers,
       },
     });
@@ -373,17 +384,19 @@ export async function fetchAdminStats(): Promise<AdminStats> {
   };
 }
 
-// Add new user via backend
+// Add new user via backend (requires admin)
 export async function addUserToBackend(
   email: string,
   password: string,
   role: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
+    const sessionToken = localStorage.getItem("session_token");
     const response = await fetch(`${API_BASE_URL}/admin/users`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        ...(sessionToken ? { "Authorization": `Bearer ${sessionToken}` } : {}),
       },
       body: JSON.stringify({
         email,
@@ -411,13 +424,17 @@ export async function addUserToBackend(
   }
 }
 
-// Delete user via backend
+// Delete user via backend (requires admin)
 export async function deleteUserFromBackend(
   userId: number
 ): Promise<{ success: boolean; error?: string }> {
   try {
+    const sessionToken = localStorage.getItem("session_token");
     const response = await fetch(`${API_BASE_URL}/admin/users/${userId}`, {
       method: "DELETE",
+      headers: {
+        ...(sessionToken ? { "Authorization": `Bearer ${sessionToken}` } : {}),
+      },
       cache: "no-store",
     });
 
@@ -438,16 +455,18 @@ export async function deleteUserFromBackend(
   }
 }
 
-// Toggle user status via backend
+// Toggle user status via backend (requires admin)
 export async function toggleUserStatusBackend(
   userId: number,
   isActive: boolean
 ): Promise<{ success: boolean; error?: string }> {
   try {
+    const sessionToken = localStorage.getItem("session_token");
     const response = await fetch(`${API_BASE_URL}/admin/users/${userId}/status`, {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
+        ...(sessionToken ? { "Authorization": `Bearer ${sessionToken}` } : {}),
       },
       body: JSON.stringify({ is_active: isActive }),
       cache: "no-store",
@@ -468,4 +487,62 @@ export async function toggleUserStatusBackend(
       error: "Failed to connect to backend",
     };
   }
+}
+
+// ============== AUTH HELPERS ==============
+
+/**
+ * Get the current user's role from localStorage
+ */
+export function getUserRole(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem("userRole");
+}
+
+/**
+ * Get the current user info from localStorage
+ */
+export function getUser(): { id: number; email: string; name: string; role: string } | null {
+  if (typeof window === "undefined") return null;
+  const userStr = localStorage.getItem("user");
+  if (!userStr) return null;
+  try {
+    return JSON.parse(userStr);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Check if current user is an admin
+ */
+export function isAdmin(): boolean {
+  const role = getUserRole();
+  return role === "admin";
+}
+
+/**
+ * Check if user is logged in
+ */
+export function isLoggedIn(): boolean {
+  if (typeof window === "undefined") return false;
+  return !!localStorage.getItem("session_token");
+}
+
+/**
+ * Logout - clear session
+ */
+export function logout(): void {
+  if (typeof window === "undefined") return;
+  localStorage.removeItem("session_token");
+  localStorage.removeItem("user");
+  localStorage.removeItem("userRole");
+}
+
+/**
+ * Require admin - returns true if user is admin, false otherwise
+ * Used for protecting routes on frontend
+ */
+export function requireAdmin(): boolean {
+  return isAdmin();
 }

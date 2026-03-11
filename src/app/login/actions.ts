@@ -30,11 +30,15 @@ export async function loginWithPassword(formData: FormData) {
   }
 
   // Login succeeded without OTP - treat as successful login
-  // Store user info in session (since Flask doesn't return a token, we use email as identifier)
+  // Store user info in session (from backend response)
+  // Note: Frontend will also store in localStorage via loginToBackend
   const cookieStore = await cookies();
+  
+  // Store user info including role from backend
+  const userInfo = result.user || { email, role: "user" };
   cookieStore.set(
     "auth_token",
-    Buffer.from(JSON.stringify({ email, role: "user" })).toString("base64"),
+    Buffer.from(JSON.stringify(userInfo)).toString("base64"),
     {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
@@ -44,7 +48,7 @@ export async function loginWithPassword(formData: FormData) {
     }
   );
 
-  return { success: true, email: email };
+  return { success: true, email: email, user: userInfo };
 }
 
 export async function verifyOTP(formData: FormData) {

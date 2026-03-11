@@ -62,11 +62,20 @@ USERS_DB = {
         'role': 'user',
         'is_active': True,
         'created_at': '2024-01-01T00:00:00'
+    },
+    3: {
+        'id': 3,
+        'email': 'braightonjeremy@gmail.com',
+        'name': 'Braighton Jeremy',
+        'password_hash': hashlib.sha256('admin123'.encode()).hexdigest(),
+        'role': 'admin',
+        'is_active': True,
+        'created_at': '2024-01-01T00:00:00'
     }
 }
 
 # Next user ID
-NEXT_USER_ID = 3
+NEXT_USER_ID = 4
 
 # In-memory session store (in production, use Redis or database)
 SESSIONS = {}

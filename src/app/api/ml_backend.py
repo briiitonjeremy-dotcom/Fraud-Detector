@@ -386,9 +386,10 @@ def login():
         if not email or not password:
             return jsonify({'error': 'Email and password are required'}), 400
         
-        # Auto-create admin user if no users exist
-        if not USERS_DB:
-            logger.info("No users found - creating default admin user")
+        # Auto-create admin user if no users exist or admin doesn't exist
+        admin_exists = any(u.get('role') == 'admin' for u in USERS_DB.values())
+        if not USERS_DB or not admin_exists:
+            logger.info("No admin user found - creating default admin user")
             admin_user = {
                 'id': 1,
                 'email': 'admin@fraudguard.com',
@@ -401,6 +402,28 @@ def login():
             USERS_DB = {1: admin_user}
             NEXT_USER_ID = 2
         
+        # Also ensure default users exist for testing
+        if len(USERS_DB) < 3:
+            logger.info("Adding default test users")
+            users_to_add = [
+                {'email': 'user@fraudguard.com', 'name': 'Regular User', 'password': 'user123', 'role': 'user'},
+                {'email': 'braightonjeremy@gmail.com', 'name': 'Braighton Jeremy', 'password': 'admin123', 'role': 'admin'}
+            ]
+            for user_data in users_to_add:
+                # Check if user already exists
+                exists = any(u['email'].lower() == user_data['email'].lower() for u in USERS_DB.values())
+                if not exists:
+                    USERS_DB[NEXT_USER_ID] = {
+                        'id': NEXT_USER_ID,
+                        'email': user_data['email'],
+                        'name': user_data['name'],
+                        'password_hash': hashlib.sha256(user_data['password'].encode()).hexdigest(),
+                        'role': user_data['role'],
+                        'is_active': True,
+                        'created_at': '2024-01-01T00:00:00'
+                    }
+                    NEXT_USER_ID += 1
+        
         # Find user by email
         user = None
         for u in USERS_DB.values():
@@ -409,8 +432,9 @@ def login():
                 break
         
         # Auto-create admin user if trying to login as admin and user doesn't exist
-        if not user and email == 'admin@fraudguard.com' and password == 'admin123':
-            logger.info("Auto-creating admin user on first login")
+        # This handles the case where the deployed backend doesn't have the admin seeded
+        if not user and email == 'admin@fraudguard.com':
+            logger.info("Admin user not found - auto-creating on login attempt")
             admin_user = {
                 'id': NEXT_USER_ID,
                 'email': 'admin@fraudguard.com',

@@ -308,6 +308,61 @@ def health():
     })
 
 
+@app.route('/setup', methods=['POST'])
+def setup():
+    """
+    Setup endpoint - initializes admin user if not exists.
+    This is a one-time setup endpoint for demo purposes.
+    """
+    global USERS_DB, NEXT_USER_ID
+    
+    # Check if admin already exists
+    admin_exists = any(u.get('role') == 'admin' for u in USERS_DB.values())
+    
+    if admin_exists:
+        return jsonify({
+            'message': 'Admin user already exists',
+            'users': [{'id': u['id'], 'email': u['email'], 'role': u['role']} for u in USERS_DB.values()]
+        })
+    
+    # Create admin user
+    admin_user = {
+        'id': 1,
+        'email': 'admin@fraudguard.com',
+        'name': 'Admin User',
+        'password_hash': hashlib.sha256('admin123'.encode()).hexdigest(),
+        'role': 'admin',
+        'is_active': True,
+        'created_at': '2024-01-01T00:00:00'
+    }
+    
+    # Create regular user
+    regular_user = {
+        'id': 2,
+        'email': 'user@fraudguard.com',
+        'name': 'Regular User',
+        'password_hash': hashlib.sha256('user123'.encode()).hexdigest(),
+        'role': 'user',
+        'is_active': True,
+        'created_at': '2024-01-01T00:00:00'
+    }
+    
+    USERS_DB = {
+        1: admin_user,
+        2: regular_user
+    }
+    NEXT_USER_ID = 3
+    
+    logger.info("Setup: Created default users")
+    
+    return jsonify({
+        'message': 'Setup complete - admin user created',
+        'admin_email': 'admin@fraudguard.com',
+        'admin_password': 'admin123',
+        'users': [{'id': u['id'], 'email': u['email'], 'role': u['role']} for u in USERS_DB.values()]
+    })
+
+
 # ============== AUTHENTICATION ROUTES ==============
 
 @app.route('/login', methods=['POST'])
@@ -317,6 +372,8 @@ def login():
     Request: { "email": "...", "password": "..." }
     Response: { "message": "Login successful", "user": { "id": 1, "email": "...", "name": "...", "role": "admin" } }
     """
+    global USERS_DB, NEXT_USER_ID
+    
     try:
         data = request.get_json()
         
@@ -329,12 +386,43 @@ def login():
         if not email or not password:
             return jsonify({'error': 'Email and password are required'}), 400
         
+        # Auto-create admin user if no users exist
+        if not USERS_DB:
+            logger.info("No users found - creating default admin user")
+            admin_user = {
+                'id': 1,
+                'email': 'admin@fraudguard.com',
+                'name': 'Admin User',
+                'password_hash': hashlib.sha256('admin123'.encode()).hexdigest(),
+                'role': 'admin',
+                'is_active': True,
+                'created_at': '2024-01-01T00:00:00'
+            }
+            USERS_DB = {1: admin_user}
+            NEXT_USER_ID = 2
+        
         # Find user by email
         user = None
         for u in USERS_DB.values():
             if u['email'].lower() == email:
                 user = u
                 break
+        
+        # Auto-create admin user if trying to login as admin and user doesn't exist
+        if not user and email == 'admin@fraudguard.com' and password == 'admin123':
+            logger.info("Auto-creating admin user on first login")
+            admin_user = {
+                'id': NEXT_USER_ID,
+                'email': 'admin@fraudguard.com',
+                'name': 'Admin User',
+                'password_hash': hashlib.sha256('admin123'.encode()).hexdigest(),
+                'role': 'admin',
+                'is_active': True,
+                'created_at': time.strftime('%Y-%m-%dT%H:%M:%S')
+            }
+            USERS_DB[NEXT_USER_ID] = admin_user
+            user = admin_user
+            NEXT_USER_ID += 1
         
         if not user:
             return jsonify({'error': 'Invalid credentials'}), 401

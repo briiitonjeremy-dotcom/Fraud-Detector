@@ -260,7 +260,7 @@ export default function Dashboard() {
               border: `1px solid ${userRole === "admin" ? "rgba(168, 85, 247, 0.3)" : userRole === "analyst" ? "rgba(59, 130, 246, 0.3)" : "rgba(34, 197, 94, 0.3)"}`
             }}>
               <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.5rem" }}>LOGGED IN AS</div>
-              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.25rem" }}>
                 <span style={{ 
                   fontSize: "0.875rem", 
                   fontWeight: "bold",
@@ -269,6 +269,18 @@ export default function Dashboard() {
                 }}>
                   {userRole}
                 </span>
+                <span style={{ 
+                  fontSize: "0.625rem", 
+                  padding: "2px 6px", 
+                  borderRadius: "4px", 
+                  background: localStorage.getItem("isActive") !== "false" ? "rgba(34, 197, 94, 0.2)" : "rgba(239, 68, 68, 0.2)",
+                  color: localStorage.getItem("isActive") !== "false" ? "#22c55e" : "#ef4444"
+                }}>
+                  {localStorage.getItem("isActive") !== "false" ? "ACTIVE" : "INACTIVE"}
+                </span>
+              </div>
+              <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)", wordBreak: "break-all" }}>
+                {localStorage.getItem("user") ? JSON.parse(localStorage.getItem("user") || "{}").email : ""}
               </div>
             </div>
           )}

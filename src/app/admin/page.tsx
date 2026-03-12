@@ -11,6 +11,7 @@ import {
   deleteUserFromBackend,
   toggleUserStatusBackend,
   isAdmin,
+  isLoggedIn,
   AdminUser,
   AdminTransaction,
   AdminLog,
@@ -36,6 +37,7 @@ export default function AdminPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [apiStatus, setApiStatus] = useState<ApiStatus>({ status: "offline", latency: 0, lastChecked: new Date() });
   const [authorized, setAuthorized] = useState(false);
+  const [accessDeniedReason, setAccessDeniedReason] = useState<string | null>(null);
   
   // User management state
   const [usersList, setUsersList] = useState<AdminUser[]>([]);
@@ -63,7 +65,34 @@ export default function AdminPage() {
   // Skip authorization check - allow all users
   // Check authorization on mount
   useEffect(() => {
-    // Allow all users to access admin
+    // Check if user is logged in and is admin
+    const loggedIn = isLoggedIn();
+    const admin = isAdmin();
+    
+    console.log("[Admin] Authorization check:", {
+      loggedIn,
+      admin,
+      userRole: localStorage.getItem("userRole"),
+      sessionToken: !!localStorage.getItem("session_token")
+    });
+    
+    if (!loggedIn) {
+      // Not logged in - redirect to login
+      console.log("[Admin] Not logged in, redirecting to /login");
+      router.push("/login?redirect=/admin");
+      return;
+    }
+    
+    if (!admin) {
+      // Logged in but not admin - show access denied
+      console.log("[Admin] User is not admin, showing access denied");
+      setAccessDeniedReason("You do not have admin privileges. Only administrators can access this page.");
+      setAuthorized(false);
+      return;
+    }
+    
+    // User is admin - allow access
+    console.log("[Admin] User is admin, allowing access");
     setAuthorized(true);
   }, [router]);
 
@@ -212,7 +241,35 @@ export default function AdminPage() {
 
   return (
     <div className="min-h-screen bg-slate-900 text-white">
+      {/* Access Denied Message */}
+      {accessDeniedReason && (
+        <div className="min-h-screen flex items-center justify-center bg-slate-900 p-4">
+          <div className="max-w-md w-full bg-red-500/10 border border-red-500/30 rounded-2xl p-8 text-center">
+            <div className="w-20 h-20 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
+              <span className="text-4xl">🚫</span>
+            </div>
+            <h2 className="text-2xl font-bold text-red-400 mb-4">Access Denied</h2>
+            <p className="text-slate-300 mb-6">{accessDeniedReason}</p>
+            <div className="flex gap-4 justify-center">
+              <a
+                href="/login?redirect=/admin"
+                className="px-6 py-3 bg-cyan-500 hover:bg-cyan-600 text-white rounded-lg font-medium transition-colors"
+              >
+                Login as Admin
+              </a>
+              <a
+                href="/"
+                className="px-6 py-3 bg-slate-700 hover:bg-slate-600 text-white rounded-lg font-medium transition-colors"
+              >
+                Go to Dashboard
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
+      {!accessDeniedReason && (
       <header className="bg-slate-800/50 backdrop-blur-xl border-b border-slate-700/50 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
@@ -240,8 +297,10 @@ export default function AdminPage() {
           </div>
         </div>
       </header>
+      )}
 
       {/* Navigation Tabs */}
+      {!accessDeniedReason && (
       <nav className="bg-slate-800/30 border-b border-slate-700/50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex gap-1 overflow-x-auto">
@@ -268,8 +327,10 @@ export default function AdminPage() {
           </div>
         </div>
       </nav>
+      )}
 
       {/* Main Content */}
+      {!accessDeniedReason && (
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Dashboard Tab */}
         {activeTab === "dashboard" && (
@@ -586,6 +647,7 @@ export default function AdminPage() {
           </div>
         )}
       </main>
+      )}
 
       {/* Add User Modal */}
       {showAddUserModal && (

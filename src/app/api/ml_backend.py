@@ -357,7 +357,8 @@ def login():
                 'id': user['id'],
                 'email': user['email'],
                 'name': user['name'],
-                'role': user['role']
+                'role': user['role'],
+                'is_active': user.get('is_active', True)
             },
             'session_token': session_token
         })
@@ -390,7 +391,8 @@ def get_current_user():
             'id': user.get('id'),
             'email': user.get('email'),
             'name': user.get('name'),
-            'role': user.get('role')
+            'role': user.get('role'),
+            'is_active': user.get('is_active', True)
         }
     })
 

@@ -21,6 +21,7 @@ export interface LoginResponse {
     email: string;
     name: string;
     role: string;
+    is_active?: boolean;
   };
 }
 
@@ -38,6 +39,7 @@ export interface VerifyOTPResponse {
     email: string;
     name: string;
     role: string;
+    is_active?: boolean;
   };
 }
 
@@ -77,6 +79,7 @@ export async function loginToBackend(
       if (data.user) {
         localStorage.setItem("user", JSON.stringify(data.user));
         localStorage.setItem("userRole", data.user.role || "user");
+        localStorage.setItem("isActive", String(data.user.is_active ?? true));
       }
       if (data.session_token) {
         localStorage.setItem("session_token", data.session_token);
@@ -133,6 +136,16 @@ export async function verifyOTPOnBackend(
       };
     }
 
+    // Store auth data on successful verification
+    if (data.user) {
+      localStorage.setItem("user", JSON.stringify(data.user));
+      localStorage.setItem("userRole", data.user.role || "user");
+      localStorage.setItem("isActive", String(data.user.is_active ?? true));
+    }
+    if (data.session_token) {
+      localStorage.setItem("session_token", data.session_token);
+    }
+
     return {
       success: data.success ?? true,
       user: data.user,
@@ -144,6 +157,18 @@ export async function verifyOTPOnBackend(
       success: false,
       error: "Failed to connect to backend. Please try again.",
     };
+  }
+}
+
+// Store is_active after successful OTP verification
+function storeAuthData(user: { id: number; email: string; name: string; role: string; is_active?: boolean }, sessionToken?: string) {
+  if (user) {
+    localStorage.setItem("user", JSON.stringify(user));
+    localStorage.setItem("userRole", user.role || "user");
+    localStorage.setItem("isActive", String(user.is_active ?? true));
+  }
+  if (sessionToken) {
+    localStorage.setItem("session_token", sessionToken);
   }
 }
 
@@ -522,6 +547,15 @@ export function isAdmin(): boolean {
 }
 
 /**
+ * Check if current user is active
+ */
+export function isUserActive(): boolean {
+  if (typeof window === "undefined") return false;
+  const isActive = localStorage.getItem("isActive");
+  return isActive !== "false";
+}
+
+/**
  * Check if user is logged in
  */
 export function isLoggedIn(): boolean {
@@ -537,6 +571,7 @@ export function logout(): void {
   localStorage.removeItem("session_token");
   localStorage.removeItem("user");
   localStorage.removeItem("userRole");
+  localStorage.removeItem("isActive");
 }
 
 /**

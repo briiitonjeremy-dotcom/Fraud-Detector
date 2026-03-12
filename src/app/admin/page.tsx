@@ -77,9 +77,9 @@ export default function AdminPage() {
     });
     
     if (!loggedIn) {
-      // Not logged in - redirect to login
-      console.log("[Admin] Not logged in, redirecting to /login");
-      router.push("/login?redirect=/admin");
+      // Not logged in - redirect to admin login
+      console.log("[Admin] Not logged in, redirecting to /admin/login");
+      router.push("/admin/login?redirect=/admin");
       return;
     }
     

@@ -22,8 +22,11 @@ export default function AdminLogin() {
     await new Promise(resolve => setTimeout(resolve, 500));
 
     if (password === ADMIN_PASSWORD) {
-      // Store admin session
+      // Store admin session - use session_token to match the rest of the app
+      localStorage.setItem("session_token", "admin_logged_in");
       localStorage.setItem("admin_auth", "true");
+      localStorage.setItem("userRole", "admin");
+      localStorage.setItem("user", JSON.stringify({ id: 1, email: "admin@fraudguard.com", name: "Admin User", role: "admin" }));
       router.push("/admin");
     } else {
       setError("Invalid password");

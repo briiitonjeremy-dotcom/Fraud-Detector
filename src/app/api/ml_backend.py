@@ -454,14 +454,19 @@ def login():
         # Check password
         password_hash = hash_password(password)
         if user['password_hash'] != password_hash:
+            logger.warning(f"Failed login attempt for email: {email}")
             return jsonify({'error': 'Invalid credentials'}), 401
         
         # Check if user is active
         if not user.get('is_active', True):
+            logger.warning(f"Login attempt for disabled account: {email}")
             return jsonify({'error': 'Account is disabled'}), 403
         
         # Create session
         session_token = create_session(user)
+        
+        # Log successful login
+        logger.info(f"USER LOGIN: {user['email']} | Role: {user['role']} | ID: {user['id']}")
         
         return jsonify({
             'message': 'Login successful',

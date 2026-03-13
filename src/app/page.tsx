@@ -352,7 +352,7 @@ export default function Dashboard() {
                 {new Date().toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
               </span>
             </div>
-            {hasRealData && mlStatus === "online" && (
+            {hasRealData && (
               <div style={{ display: 'flex', gap: '0.75rem' }}>
                 <button 
                   onClick={handleSaveToDatabase}
@@ -361,15 +361,15 @@ export default function Dashboard() {
                   disabled={saveStatus.saving}
                   title="Save high-risk transactions (>50% fraud probability) to database"
                 >
-                  {saveStatus.saving ? '⏳ Saving...' : '💾 Save to Database'}
+                  {saveStatus.saving ? '⏳ Saving...' : '💾 Save Suspicious'}
                 </button>
                 <button 
                   onClick={handleClearData}
                   className="btn btn-secondary"
                   style={{ padding: "0.5rem 1rem", fontSize: "0.875rem" }}
-                  title="Clear all stored data"
+                  title="Clear all displayed data"
                 >
-                  🗑 Clear Data
+                  🗑 Clear Displayed Data
                 </button>
               </div>
             )}

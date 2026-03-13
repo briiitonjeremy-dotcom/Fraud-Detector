@@ -1,10 +1,63 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { isAdmin, logout } from "@/lib/api";
 
 const ML_SERVICE_URL = "https://ml-file-for-url.onrender.com";
+
+interface RawTransaction {
+  step?: number;
+  type?: string;
+  amount?: number;
+  nameOrig?: string;
+  nameorig?: string;
+  oldbalanceOrg?: number;
+  newbalanceOrig?: number;
+  nameDest?: string;
+  namedest?: string;
+  oldbalanceDest?: number;
+  newbalanceDest?: number;
+  timestamp?: string;
+  channel?: string;
+  region?: string;
+  device_id?: string;
+  recipient_name?: string;
+  fraud_score?: number | null;
+  prediction?: number | null;
+  is_fraud?: boolean;
+  [key: string]: any;
+}
+
+interface ProcessedResults {
+  total_transactions: number;
+  fraud_detected: number;
+  fraud_rate: number;
+  processedAt?: string;
+}
+
+interface NormalizedTransaction {
+  id: string;
+  step: number;
+  type: string;
+  amount: number;
+  sender: string;
+  senderAccount: string;
+  recipient: string;
+  recipientAccount: string;
+  oldBalanceOrig: number;
+  newBalanceOrig: number;
+  oldBalanceDest: number;
+  newBalanceDest: number;
+  timestamp: string;
+  channel: string;
+  region: string;
+  deviceId: string;
+  fraudScore: number;
+  isFraud: boolean;
+  status: "SUSPICIOUS" | "LEGITIMATE";
+  riskLevel: "HIGH" | "MEDIUM" | "LOW";
+}
 
 const defaultStats = {
   totalTransactions: 0,
@@ -13,16 +66,42 @@ const defaultStats = {
   riskScore: 0,
 };
 
+function normalizeTransaction(raw: RawTransaction): NormalizedTransaction {
+  const fraudScore = raw.fraud_score ?? (raw.is_fraud ? 95 : (raw.prediction ?? 0) * 100);
+  const isFraud = raw.is_fraud === true || fraudScore >= 50;
+  
+  return {
+    id: `TXN-${raw.step || 1}`,
+    step: raw.step || 1,
+    type: raw.type || "TRANSFER",
+    amount: raw.amount || 0,
+    sender: raw.nameOrig || raw.nameorig || "Unknown",
+    senderAccount: raw.nameOrig || raw.nameorig || "",
+    recipient: raw.recipient_name || raw.nameDest || raw.namedest || "Unknown",
+    recipientAccount: raw.nameDest || raw.namedest || "",
+    oldBalanceOrig: raw.oldbalanceOrg || 0,
+    newBalanceOrig: raw.newbalanceOrig || 0,
+    oldBalanceDest: raw.oldbalanceDest || 0,
+    newBalanceDest: raw.newbalanceDest || 0,
+    timestamp: raw.timestamp || new Date().toISOString(),
+    channel: raw.channel || "Unknown",
+    region: raw.region || "Unknown",
+    deviceId: raw.device_id || "",
+    fraudScore: fraudScore,
+    isFraud: isFraud,
+    status: isFraud ? "SUSPICIOUS" : "LEGITIMATE",
+    riskLevel: fraudScore >= 70 ? "HIGH" : fraudScore >= 40 ? "MEDIUM" : "LOW",
+  };
+}
+
 export default function Dashboard() {
   const [mlStatus, setMlStatus] = useState<"loading" | "online" | "offline">("loading");
   const [hasRealData, setHasRealData] = useState(false);
   const [processedAt, setProcessedAt] = useState<string>("");
   const [stats, setStats] = useState(defaultStats);
-  const [vendors, setVendors] = useState<{name: string, transactions: number, fraud: number, rate: number}[]>([]);
   const [alerts, setAlerts] = useState<{time: string, severity: string, message: string}[]>([]);
-  const [recentTransaction, setRecentTransaction] = useState<{id: string, score: number, isFraud: boolean, amount?: number, vendor?: string} | null>(null);
-  const [recentTransactions, setRecentTransactions] = useState<{transaction_id: string, amount: number, vendor_name?: string, fraud_score?: number | null, is_fraud?: boolean, nameorig?: string, nameDest?: string}[]>([]);
-  const [savedFraudCases, setSavedFraudCases] = useState<{transaction_id: string, amount: number, fraud_score: number, savedAt: string, nameorig?: string, nameDest?: string}[]>([]);
+  const [rawTransactions, setRawTransactions] = useState<RawTransaction[]>([]);
+  const [savedFraudCases, setSavedFraudCases] = useState<any[]>([]);
   const [saveStatus, setSaveStatus] = useState<{saving: boolean, message: string}>({saving: false, message: ""});
   const [userRole, setUserRole] = useState<string | null>(() => {
     if (typeof window === 'undefined') return null;
@@ -33,10 +112,18 @@ export default function Dashboard() {
     return !!localStorage.getItem("session_token");
   });
 
+  const transactions: NormalizedTransaction[] = useMemo(() => {
+    return rawTransactions.map(normalizeTransaction);
+  }, [rawTransactions]);
+
+  const suspiciousTransactions = useMemo(() => {
+    return transactions.filter(t => t.isFraud || t.fraudScore >= 50);
+  }, [transactions]);
+
   const navItems = [
     { href: "/", icon: "⬡", label: "Dashboard", active: true },
     { href: "/upload", icon: "⇪", label: "Upload Dataset", active: false },
-    { href: "/explain", icon: "⟁", label: "Explain", active: false },
+    { href: "/explain", icon: "�ichter", label: "Explain", active: false },
     { href: "/api-test", icon: "⚡", label: "API Test", active: false },
     { href: "/admin", icon: "⚙", label: "Admin", active: false },
     loggedIn 
@@ -50,45 +137,37 @@ export default function Dashboard() {
       localStorage.removeItem('fraudguard_transactions');
       localStorage.removeItem('fraudguard_fraud_cases');
       setStats(defaultStats);
-      setVendors([]);
       setAlerts([]);
       setHasRealData(false);
       setProcessedAt("");
-      setRecentTransaction(null);
-      setRecentTransactions([]);
+      setRawTransactions([]);
       setSavedFraudCases([]);
     }
   };
 
   const handleSaveToDatabase = async () => {
-    if (recentTransactions.length === 0) {
-      setSaveStatus({saving: false, message: "No transactions to save"});
+    if (suspiciousTransactions.length === 0) {
+      setSaveStatus({saving: false, message: "No suspicious transactions to save"});
       return;
     }
     
     setSaveStatus({saving: true, message: ""});
     
     try {
-      const highRiskTransactions = recentTransactions.filter(txn => 
-        (txn.fraud_score !== null && txn.fraud_score !== undefined && txn.fraud_score > 50) || 
-        txn.is_fraud === true
-      );
-      
-      if (highRiskTransactions.length === 0) {
-        setSaveStatus({saving: false, message: "No high-risk transactions (>50% fraud probability) found"});
-        return;
-      }
-      
       const existingCases = localStorage.getItem('fraudguard_fraud_cases');
       const existingCasesArray = existingCases ? JSON.parse(existingCases) : [];
       
-      const newFraudCases = highRiskTransactions.map(txn => ({
-        transaction_id: txn.transaction_id || txn.nameorig || `TXN_${Date.now()}`,
-        amount: txn.amount || 0,
-        fraud_score: txn.fraud_score || (txn.is_fraud ? 95 : 0),
+      const newFraudCases = suspiciousTransactions.map(txn => ({
+        transaction_id: txn.id,
+        step: txn.step,
+        type: txn.type,
+        amount: txn.amount,
+        fraud_score: txn.fraudScore,
         savedAt: new Date().toISOString(),
-        nameorig: txn.nameorig,
-        nameDest: txn.nameDest
+        nameorig: txn.sender,
+        nameDest: txn.recipient,
+        channel: txn.channel,
+        region: txn.region,
       }));
       
       const existingIds = new Set(existingCasesArray.map((c: any) => c.transaction_id));
@@ -98,7 +177,7 @@ export default function Dashboard() {
       localStorage.setItem('fraudguard_fraud_cases', JSON.stringify(allCases));
       setSavedFraudCases(allCases);
       
-      setSaveStatus({saving: false, message: `Successfully saved ${uniqueNewCases.length} high-risk transaction(s) to database!`});
+      setSaveStatus({saving: false, message: `Successfully saved ${uniqueNewCases.length} suspicious transaction(s) to database!`});
     } catch (error) {
       setSaveStatus({saving: false, message: "Error saving transactions to database"});
     }
@@ -132,7 +211,7 @@ export default function Dashboard() {
       try {
         const storedData = localStorage.getItem('fraudguard_results');
         if (storedData && mounted) {
-          const parsed = JSON.parse(storedData);
+          const parsed: ProcessedResults = JSON.parse(storedData);
           setStats({
             totalTransactions: parsed.total_transactions || 0,
             fraudDetected: parsed.fraud_detected || 0,
@@ -141,23 +220,33 @@ export default function Dashboard() {
           });
           setProcessedAt(parsed.processedAt || "");
           setHasRealData(true);
+
+          if (parsed.fraud_rate > 10) {
+            setAlerts([{
+              time: "Just now",
+              severity: "high",
+              message: `Fraud rate is ${parsed.fraud_rate.toFixed(2)}%, significantly above normal thresholds.`
+            }]);
+          } else if (parsed.fraud_rate > 5) {
+            setAlerts([{
+              time: "Just now",
+              severity: "high",
+              message: `Fraud rate is ${parsed.fraud_rate.toFixed(2)}%, exceeding the 5% threshold.`
+            }]);
+          } else if (parsed.fraud_rate > 2) {
+            setAlerts([{
+              time: "Just now",
+              severity: "medium",
+              message: `Fraud rate is ${parsed.fraud_rate.toFixed(2)}%, slightly above normal levels.`
+            }]);
+          }
         }
         
         const storedTransactions = localStorage.getItem('fraudguard_transactions');
         if (storedTransactions && mounted) {
-          const txns = JSON.parse(storedTransactions);
+          const txns: RawTransaction[] = JSON.parse(storedTransactions);
           if (txns.length > 0) {
-            const latestTxn = txns[0];
-            setRecentTransaction({
-              id: latestTxn.transaction_id || latestTxn.nameorig || latestTxn.nameOrig || 'Unknown',
-              score: latestTxn.fraud_score !== null && latestTxn.fraud_score !== undefined 
-                ? latestTxn.fraud_score 
-                : (latestTxn.is_fraud ? 95 : 0),
-              isFraud: latestTxn.is_fraud || false,
-              amount: latestTxn.amount,
-              vendor: latestTxn.nameorig || latestTxn.nameOrig || latestTxn.vendor_name
-            });
-            setRecentTransactions(txns.slice(0, 50));
+            setRawTransactions(txns);
             setHasRealData(true);
           }
         }
@@ -321,7 +410,7 @@ export default function Dashboard() {
                   className="btn btn-primary"
                   style={{ padding: "0.5rem 1rem", fontSize: "0.875rem" }}
                   disabled={saveStatus.saving}
-                  title="Save high-risk transactions (>50% fraud probability) to database"
+                  title="Save suspicious transactions to database"
                 >
                   {saveStatus.saving ? '⏳ Saving...' : '💾 Save Suspicious'}
                 </button>
@@ -353,33 +442,6 @@ export default function Dashboard() {
         )}
 
         <div className="stats-grid">
-          {recentTransaction && (
-            <div className="stat-card" style={{ gridColumn: "span 2" }}>
-              <div className="stat-icon blue">⟁</div>
-              <div className="stat-label">Latest Analyzed Transaction</div>
-              <div style={{ display: "flex", alignItems: "center", gap: "1rem", marginTop: "0.5rem" }}>
-                <div>
-                  <div style={{ fontSize: "1.25rem", fontWeight: 600, color: "var(--text-primary)" }}>
-                    {recentTransaction.id}
-                  </div>
-                  <div style={{ fontSize: "0.875rem", color: "var(--text-muted)" }}>
-                    {recentTransaction.vendor || "Unknown Vendor"} • ${recentTransaction.amount?.toLocaleString() || "—"}
-                  </div>
-                </div>
-                <div style={{ marginLeft: "auto", textAlign: "right" }}>
-                  <div style={{ fontSize: "1.5rem", fontWeight: 700, 
-                    color: recentTransaction.isFraud ? "var(--danger)" : "var(--success)" 
-                  }}>
-                    {Math.round(recentTransaction.score * 100)}%
-                  </div>
-                  <span className={recentTransaction.isFraud ? "badge badge-danger" : "badge badge-success"}>
-                    {recentTransaction.isFraud ? "FRAUD" : "LEGITIMATE"}
-                  </span>
-                </div>
-              </div>
-            </div>
-          )}
-          
           <div className="stat-card">
             <div className="stat-icon blue">⬡</div>
             <div className="stat-label">Total Transactions</div>
@@ -463,60 +525,64 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {recentTransactions.length > 0 && (
+        {transactions.length > 0 && (
           <div className="card" style={{ marginBottom: "1.5rem" }}>
             <div className="card-header">
               <h3 className="card-title">Recent Transactions</h3>
               <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
-                {recentTransactions.length} transactions from dataset
+                {transactions.length} transactions from dataset
               </span>
             </div>
-            <div className="table-container">
+            <div className="table-container" style={{ overflowX: "auto" }}>
               <table className="table">
                 <thead>
                   <tr>
                     <th>Transaction ID</th>
-                    <th>Vendor</th>
-                    <th>Amount</th>
+                    <th>Type</th>
+                    <th>Amount (KES)</th>
+                    <th>Sender</th>
+                    <th>Recipient</th>
+                    <th>Channel</th>
+                    <th>Region</th>
                     <th>Fraud Score</th>
                     <th>Status</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {recentTransactions.slice(0, 20).map((txn, i) => (
+                  {transactions.slice(0, 20).map((txn, i) => (
                     <tr key={i}>
-                      <td style={{ fontWeight: 600 }}>{txn.transaction_id || txn.nameorig || 'N/A'}</td>
-                      <td>{txn.nameorig || txn.vendor_name || 'Unknown'}</td>
-                      <td>${txn.amount?.toLocaleString() || '0'}</td>
+                      <td style={{ fontWeight: 600 }}>{txn.id}</td>
+                      <td>{txn.type}</td>
+                      <td style={{ fontWeight: 600 }}>{txn.amount.toLocaleString()}</td>
+                      <td>{txn.sender}</td>
+                      <td>{txn.recipient}</td>
+                      <td>{txn.channel}</td>
+                      <td>{txn.region}</td>
                       <td>
-                        {txn.fraud_score !== null && txn.fraud_score !== undefined ? (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <div style={{ 
+                            width: '60px', 
+                            height: '6px', 
+                            background: 'rgba(255,255,255,0.1)', 
+                            borderRadius: '3px',
+                            overflow: 'hidden'
+                          }}>
                             <div style={{ 
-                              width: '60px', 
-                              height: '6px', 
-                              background: 'rgba(255,255,255,0.1)', 
-                              borderRadius: '3px',
-                              overflow: 'hidden'
-                            }}>
-                              <div style={{ 
-                                width: `${txn.fraud_score}%`, 
-                                height: '100%', 
-                                background: (txn.fraud_score || 0) > 70 ? 'var(--danger)' : (txn.fraud_score || 0) > 40 ? 'var(--warning)' : 'var(--success)',
-                                borderRadius: '3px'
-                              }} />
-                            </div>
-                            <span style={{ fontSize: '0.75rem' }}>{Math.round(txn.fraud_score)}%</span>
+                              width: `${txn.fraudScore}%`, 
+                              height: '100%', 
+                              background: txn.fraudScore > 70 ? 'var(--danger)' : txn.fraudScore > 40 ? 'var(--warning)' : 'var(--success)',
+                              borderRadius: '3px'
+                            }} />
                           </div>
-                        ) : (
-                          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>N/A</span>
-                        )}
+                          <span style={{ fontSize: '0.75rem', fontWeight: 600, color: txn.fraudScore > 70 ? 'var(--danger)' : txn.fraudScore > 40 ? 'var(--warning)' : 'var(--success)' }}>
+                            {txn.fraudScore.toFixed(1)}%
+                          </span>
+                        </div>
                       </td>
                       <td>
-                        {(txn.is_fraud || ((txn.fraud_score || 0) > 70)) ? (
-                          <span className="badge badge-danger">FRAUD</span>
-                        ) : (
-                          <span className="badge badge-success">LEGITIMATE</span>
-                        )}
+                        <span className={txn.isFraud ? "badge badge-danger" : "badge badge-success"}>
+                          {txn.status}
+                        </span>
                       </td>
                     </tr>
                   ))}
@@ -531,7 +597,7 @@ export default function Dashboard() {
             <div className="card-header">
               <h3 className="card-title" style={{ color: 'var(--danger)' }}>🚫 Saved Fraud Cases (Database)</h3>
               <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
-                {savedFraudCases.length} high-risk transaction(s) stored
+                {savedFraudCases.length} suspicious transaction(s) stored
               </span>
             </div>
             <div className="table-container">
@@ -539,9 +605,10 @@ export default function Dashboard() {
                 <thead>
                   <tr>
                     <th>Transaction ID</th>
-                    <th>From</th>
-                    <th>To</th>
-                    <th>Amount</th>
+                    <th>Type</th>
+                    <th>Amount (KES)</th>
+                    <th>Sender</th>
+                    <th>Recipient</th>
                     <th>Fraud Score</th>
                     <th>Saved At</th>
                   </tr>
@@ -550,9 +617,10 @@ export default function Dashboard() {
                   {savedFraudCases.slice(0, 20).map((txn, i) => (
                     <tr key={i}>
                       <td style={{ fontWeight: 600, color: 'var(--danger)' }}>{txn.transaction_id}</td>
+                      <td>{txn.type || "TRANSFER"}</td>
+                      <td>{(txn.amount || 0).toLocaleString()}</td>
                       <td>{txn.nameorig || 'Unknown'}</td>
                       <td>{txn.nameDest || 'Unknown'}</td>
-                      <td>${txn.amount?.toLocaleString() || '0'}</td>
                       <td>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                           <div style={{ 
@@ -563,13 +631,13 @@ export default function Dashboard() {
                             overflow: 'hidden'
                           }}>
                             <div style={{ 
-                              width: `${txn.fraud_score}%`, 
+                              width: `${txn.fraud_score || 0}%`, 
                               height: '100%', 
                               background: 'var(--danger)',
                               borderRadius: '3px'
                             }} />
                           </div>
-                          <span style={{ fontSize: '0.75rem', color: 'var(--danger)' }}>{Math.round(txn.fraud_score)}%</span>
+                          <span style={{ fontSize: '0.75rem', color: 'var(--danger)' }}>{(txn.fraud_score || 0).toFixed(1)}%</span>
                         </div>
                       </td>
                       <td style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
@@ -680,61 +748,6 @@ export default function Dashboard() {
         <div className="grid-2">
           <div className="card">
             <div className="card-header">
-              <h3 className="card-title">High-Risk Vendors</h3>
-              <Link href="/upload" className="btn btn-secondary" style={{ padding: "0.5rem 1rem", fontSize: "0.75rem" }}>
-                Upload Dataset
-              </Link>
-            </div>
-            {vendors.length > 0 ? (
-              <div className="table-container">
-                <table className="table">
-                  <thead>
-                    <tr>
-                      <th>Vendor</th>
-                      <th>Transactions</th>
-                      <th>Fraud</th>
-                      <th>Rate</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {vendors.map((vendor, i) => (
-                      <tr key={i}>
-                        <td>
-                          <span style={{ fontWeight: i < 3 ? 600 : 400 }}>
-                            {vendor.name}
-                            {i < 3 && <span style={{ marginLeft: "0.5rem", color: "var(--danger)" }}>⚠</span>}
-                          </span>
-                        </td>
-                        <td>{vendor.transactions.toLocaleString()}</td>
-                        <td>{vendor.fraud}</td>
-                        <td>
-                          <span className={vendor.rate > 5 ? "badge badge-danger" : vendor.rate > 3 ? "badge badge-warning" : "badge badge-success"}>
-                            {vendor.rate}%
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div style={{ 
-                display: "flex", 
-                flexDirection: "column",
-                alignItems: "center", 
-                justifyContent: "center", 
-                padding: "3rem 1rem" 
-              }}>
-                <div style={{ fontSize: "3rem", marginBottom: "1rem", opacity: 0.3 }}>🏪</div>
-                <p style={{ color: "var(--text-muted)", textAlign: "center" }}>
-                  Vendor analysis will appear after uploading a dataset
-                </p>
-              </div>
-            )}
-          </div>
-
-          <div className="card">
-            <div className="card-header">
               <h3 className="card-title">Security Alerts</h3>
               {alerts.length > 0 && <span className="badge badge-danger">{alerts.length} new</span>}
             </div>
@@ -769,6 +782,74 @@ export default function Dashboard() {
                 <div style={{ fontSize: "3rem", marginBottom: "1rem", opacity: 0.3 }}>🔔</div>
                 <p style={{ color: "var(--text-muted)", textAlign: "center" }}>
                   Security alerts will appear here after processing
+                </p>
+              </div>
+            )}
+          </div>
+
+          <div className="card">
+            <div className="card-header">
+              <h3 className="card-title">Suspicious Transactions</h3>
+              {suspiciousTransactions.length > 0 && (
+                <span className="badge badge-danger">{suspiciousTransactions.length} flagged</span>
+              )}
+            </div>
+            {suspiciousTransactions.length > 0 ? (
+              <div className="table-container" style={{ overflowX: "auto" }}>
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Transaction ID</th>
+                      <th>Amount (KES)</th>
+                      <th>Recipient</th>
+                      <th>Fraud Score</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {suspiciousTransactions.slice(0, 10).map((txn, i) => (
+                      <tr key={i}>
+                        <td style={{ fontWeight: 600, color: 'var(--danger)' }}>{txn.id}</td>
+                        <td>{txn.amount.toLocaleString()}</td>
+                        <td>{txn.recipient}</td>
+                        <td>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <div style={{ 
+                              width: '60px', 
+                              height: '6px', 
+                              background: 'rgba(255,255,255,0.1)', 
+                              borderRadius: '3px',
+                              overflow: 'hidden'
+                            }}>
+                              <div style={{ 
+                                width: `${txn.fraudScore}%`, 
+                                height: '100%', 
+                                background: 'var(--danger)',
+                                borderRadius: '3px'
+                              }} />
+                            </div>
+                            <span style={{ fontSize: '0.75rem', color: 'var(--danger)' }}>{txn.fraudScore.toFixed(1)}%</span>
+                          </div>
+                        </td>
+                        <td>
+                          <span className="badge badge-danger">{txn.status}</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div style={{ 
+                display: "flex", 
+                flexDirection: "column",
+                alignItems: "center", 
+                justifyContent: "center", 
+                padding: "3rem 1rem" 
+              }}>
+                <div style={{ fontSize: "3rem", marginBottom: "1rem", opacity: 0.3 }}>✅</div>
+                <p style={{ color: "var(--text-muted)", textAlign: "center" }}>
+                  No suspicious transactions found
                 </p>
               </div>
             )}

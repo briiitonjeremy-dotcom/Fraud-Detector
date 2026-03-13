@@ -71,22 +71,22 @@ function normalizeTransaction(raw: RawTransaction): NormalizedTransaction {
   const isFraud = raw.is_fraud === true || fraudScore >= 50;
   
   return {
-    id: `TXN-${raw.step || 1}`,
-    step: raw.step || 1,
-    type: raw.type || "TRANSFER",
-    amount: raw.amount || 0,
-    sender: raw.nameOrig || raw.nameorig || "Unknown",
-    senderAccount: raw.nameOrig || raw.nameorig || "",
-    recipient: raw.recipient_name || raw.nameDest || raw.namedest || "Unknown",
-    recipientAccount: raw.nameDest || raw.namedest || "",
-    oldBalanceOrig: raw.oldbalanceOrg || 0,
-    newBalanceOrig: raw.newbalanceOrig || 0,
-    oldBalanceDest: raw.oldbalanceDest || 0,
-    newBalanceDest: raw.newbalanceDest || 0,
-    timestamp: raw.timestamp || new Date().toISOString(),
-    channel: raw.channel || "Unknown",
-    region: raw.region || "Unknown",
-    deviceId: raw.device_id || "",
+    id: raw.step ? `TXN-${raw.step}` : (raw.nameOrig || raw.nameorig || `TXN-${Date.now()}`),
+    step: raw.step || 0,
+    type: raw.type || "",
+    amount: raw.amount ?? 0,
+    sender: raw.nameOrig ?? raw.nameorig ?? "",
+    senderAccount: raw.nameOrig ?? raw.nameorig ?? "",
+    recipient: raw.recipient_name ?? raw.nameDest ?? raw.namedest ?? "",
+    recipientAccount: raw.nameDest ?? raw.namedest ?? "",
+    oldBalanceOrig: raw.oldbalanceOrg ?? 0,
+    newBalanceOrig: raw.newbalanceOrig ?? 0,
+    oldBalanceDest: raw.oldbalanceDest ?? 0,
+    newBalanceDest: raw.newbalanceDest ?? 0,
+    timestamp: raw.timestamp ?? "",
+    channel: raw.channel ?? "",
+    region: raw.region ?? "",
+    deviceId: raw.device_id ?? "",
     fraudScore: fraudScore,
     isFraud: isFraud,
     status: isFraud ? "SUSPICIOUS" : "LEGITIMATE",
@@ -617,10 +617,10 @@ export default function Dashboard() {
                   {savedFraudCases.slice(0, 20).map((txn, i) => (
                     <tr key={i}>
                       <td style={{ fontWeight: 600, color: 'var(--danger)' }}>{txn.transaction_id}</td>
-                      <td>{txn.type || "TRANSFER"}</td>
-                      <td>{(txn.amount || 0).toLocaleString()}</td>
-                      <td>{txn.nameorig || 'Unknown'}</td>
-                      <td>{txn.nameDest || 'Unknown'}</td>
+                      <td>{txn.type || ""}</td>
+                      <td>{(txn.amount ?? 0).toLocaleString()}</td>
+                      <td>{txn.nameorig || '-'}</td>
+                      <td>{txn.nameDest || '-'}</td>
                       <td>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                           <div style={{ 

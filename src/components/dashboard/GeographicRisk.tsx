@@ -50,12 +50,17 @@ const riskConfig = {
   },
 };
 
-export default function GeographicRisk() {
-  const maxTransactions = Math.max(...geoData.map(d => d.transactions));
+interface GeographicRiskProps {
+  data?: GeoRisk[];
+}
 
-  const totalTransactions = geoData.reduce((sum, d) => sum + d.transactions, 0);
-  const totalFraud = geoData.reduce((sum, d) => sum + d.fraud, 0);
-  const unknownRisk = geoData.find(d => d.region === "Unknown");
+export default function GeographicRisk({ data }: GeographicRiskProps) {
+  const displayData = data && data.length > 0 ? data : geoData;
+  const maxTransactions = Math.max(...displayData.map(d => d.transactions), 1);
+
+  const totalTransactions = displayData.reduce((sum, d) => sum + d.transactions, 0);
+  const totalFraud = displayData.reduce((sum, d) => sum + d.fraud, 0);
+  const unknownRisk = displayData.find(d => d.region === "Unknown");
 
   return (
     <div className="rounded-xl border border-slate-800/60 bg-slate-900/50 p-5">
@@ -94,7 +99,7 @@ export default function GeographicRisk() {
 
       {/* Regional Bars */}
       <div className="space-y-3">
-        {geoData.map((region) => {
+        {displayData.map((region) => {
           const config = riskConfig[region.riskLevel];
           const percent = (region.transactions / totalTransactions) * 100;
           const fraudPercent = (region.fraud / region.transactions) * 100;

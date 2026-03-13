@@ -115,7 +115,12 @@ const iconMap = {
   time: Clock,
 };
 
-export default function FraudPatternInsights() {
+interface FraudPatternInsightsProps {
+  fraudCount?: number;
+  totalCount?: number;
+}
+
+export default function FraudPatternInsights({ fraudCount = 0, totalCount = 0 }: FraudPatternInsightsProps) {
   const [selectedPattern, setSelectedPattern] = useState<string | null>(null);
 
   return (
@@ -132,7 +137,7 @@ export default function FraudPatternInsights() {
           </div>
         </div>
         <span className="px-2 py-0.5 text-xs font-medium bg-violet-500/20 text-violet-400 border border-violet-500/30 rounded-full">
-          {patterns.length} Active
+          {fraudCount > 0 ? "Active" : patterns.length + " Active"}
         </span>
       </div>
 

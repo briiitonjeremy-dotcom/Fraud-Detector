@@ -28,22 +28,35 @@ const mockData: DataPoint[] = [
   { day: "Sun", date: "Mar 14", transactions: 18450, fraud: 41, flagged: 92 },
 ];
 
-export default function FraudTrendChart() {
+interface FraudTrendChartProps {
+  transactionCount?: number;
+  fraudCount?: number;
+}
+
+export default function FraudTrendChart({ transactionCount, fraudCount }: FraudTrendChartProps) {
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+
+  // If no transaction count provided, show empty state
+  const hasData = transactionCount !== undefined && transactionCount > 0;
   
-  const maxTransactions = Math.max(...mockData.map(d => d.transactions));
-  const maxFraud = Math.max(...mockData.map(d => d.fraud));
+  // Use provided data or generate single-bar representation
+  const displayData = hasData ? [
+    { day: "Today", date: "Now", transactions: transactionCount, fraud: fraudCount || 0, flagged: fraudCount || 0 }
+  ] : mockData;
   
-  const totalTransactions = mockData.reduce((sum, d) => sum + d.transactions, 0);
-  const totalFraud = mockData.reduce((sum, d) => sum + d.fraud, 0);
-  const totalFlagged = mockData.reduce((sum, d) => sum + d.flagged, 0);
+  const maxTransactions = Math.max(...displayData.map(d => d.transactions), 1);
+  const maxFraud = Math.max(...displayData.map(d => d.fraud));
   
-  const fraudRate = ((totalFraud / totalTransactions) * 100).toFixed(2);
-  const flagRate = ((totalFlagged / totalTransactions) * 100).toFixed(2);
+  const totalTransactions = displayData.reduce((sum, d) => sum + d.transactions, 0);
+  const totalFraud = displayData.reduce((sum, d) => sum + d.fraud, 0);
+  const totalFlagged = displayData.reduce((sum, d) => sum + d.flagged, 0);
   
-  const avgDailyFraud = Math.round(totalFraud / mockData.length);
-  const trend = mockData[13].fraud - mockData[0].fraud;
-  const trendPercent = ((trend / mockData[0].fraud) * 100).toFixed(1);
+  const fraudRate = totalTransactions > 0 ? ((totalFraud / totalTransactions) * 100).toFixed(2) : "0.00";
+  const flagRate = totalTransactions > 0 ? ((totalFlagged / totalTransactions) * 100).toFixed(2) : "0.00";
+  
+  const avgDailyFraud = Math.round(totalFraud / Math.max(displayData.length, 1));
+  const trend = hasData ? 0 : displayData[13].fraud - displayData[0].fraud;
+  const trendPercent = hasData ? "0.0" : ((trend / Math.max(displayData[0].fraud, 1)) * 100).toFixed(1);
 
   return (
     <div className="rounded-xl border border-slate-800/60 bg-slate-900/50 p-5">

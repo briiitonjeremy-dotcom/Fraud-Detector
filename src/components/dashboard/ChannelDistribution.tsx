@@ -34,8 +34,13 @@ const colorMap: Record<string, string> = {
   transfer: "from-indigo-500 to-violet-500",
 };
 
-export default function ChannelDistribution() {
-  const totalTransactions = channels.reduce((sum, c) => sum + c.transactions, 0);
+interface ChannelDistributionProps {
+  data?: ChannelData[];
+}
+
+export default function ChannelDistribution({ data }: ChannelDistributionProps) {
+  const displayChannels = data && data.length > 0 ? data : channels;
+  const totalTransactions = displayChannels.reduce((sum, c) => sum + c.transactions, 0);
 
   return (
     <div className="rounded-xl border border-slate-800/60 bg-slate-900/50 p-5">
@@ -45,9 +50,10 @@ export default function ChannelDistribution() {
       </div>
 
       <div className="space-y-4">
-        {channels.map((channel) => {
-          const Icon = iconMap[channel.icon];
-          const percent = (channel.transactions / totalTransactions) * 100;
+        {displayChannels.map((channel) => {
+          const iconKey = channel.icon as keyof typeof iconMap;
+          const Icon = iconMap[iconKey] || ArrowRightLeft;
+          const percent = totalTransactions > 0 ? (channel.transactions / totalTransactions) * 100 : 0;
           const isHighRisk = channel.percentage > 0.8;
 
           return (

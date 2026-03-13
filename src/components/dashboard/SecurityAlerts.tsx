@@ -97,9 +97,15 @@ const severityConfig = {
   },
 };
 
-export default function SecurityAlertsPanel() {
+interface SecurityAlertsProps {
+  alerts?: Alert[];
+}
+
+export default function SecurityAlertsPanel({ alerts: providedAlerts }: SecurityAlertsProps) {
   const [isExpanded, setIsExpanded] = useState(true);
   const [minimized, setMinimized] = useState<Set<string>>(new Set());
+
+  const displayAlerts = providedAlerts && providedAlerts.length > 0 ? providedAlerts : alerts;
 
   const toggleMinimize = (id: string) => {
     const newMinimized = new Set(minimized);
@@ -111,7 +117,7 @@ export default function SecurityAlertsPanel() {
     setMinimized(newMinimized);
   };
 
-  const criticalCount = alerts.filter(a => a.severity === "critical").length;
+  const criticalCount = displayAlerts.filter(a => a.severity === "critical").length;
 
   return (
     <div className="rounded-xl border border-slate-800/60 bg-slate-900/50">
@@ -140,7 +146,7 @@ export default function SecurityAlertsPanel() {
       {/* Alerts List */}
       {isExpanded && (
         <div className="max-h-96 overflow-y-auto">
-          {alerts.map((alert) => {
+          {displayAlerts.map((alert) => {
             const config = severityConfig[alert.severity];
             const Icon = config.icon;
             const isMinimized = minimized.has(alert.id);

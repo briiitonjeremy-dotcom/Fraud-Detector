@@ -5,10 +5,10 @@ import { Search, Bell, RefreshCw, User, Calendar, Wifi, WifiOff } from "lucide-r
 
 interface HeaderProps {
   mlStatus?: "loading" | "online" | "offline";
-  hasRealData?: boolean;
+  hasData?: boolean;
 }
 
-export default function Header({ mlStatus = "online", hasRealData = false }: HeaderProps) {
+export default function Header({ mlStatus = "online", hasData = false }: HeaderProps) {
   const [currentTime, setCurrentTime] = useState<string>("");
   const [isRefreshing, setIsRefreshing] = useState(false);
 

@@ -148,10 +148,16 @@ function SortIcon({ field, sortField, sortDirection }: SortIconProps) {
   );
 }
 
-export default function SuspiciousTransactionsTable() {
+interface SuspiciousTransactionsTableProps {
+  transactions?: Transaction[];
+}
+
+export default function SuspiciousTransactionsTable({ transactions: providedTransactions }: SuspiciousTransactionsTableProps) {
   const [searchTerm, setSearchTerm] = useState("");
   const [sortField, setSortField] = useState<keyof Transaction>("riskScore");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
+
+  const displayTransactions = providedTransactions && providedTransactions.length > 0 ? providedTransactions : transactions;
 
   const handleSort = (field: keyof Transaction) => {
     if (sortField === field) {
@@ -162,7 +168,7 @@ export default function SuspiciousTransactionsTable() {
     }
   };
 
-  const filteredTransactions = transactions
+  const filteredTransactions = displayTransactions
     .filter(txn => 
       txn.refCode.toLowerCase().includes(searchTerm.toLowerCase()) ||
       txn.sender.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -187,7 +193,7 @@ export default function SuspiciousTransactionsTable() {
         <div className="flex items-center gap-3">
           <h3 className="text-base font-semibold text-white">Suspicious Transactions</h3>
           <span className="px-2 py-0.5 text-xs font-medium bg-red-500/20 text-red-400 border border-red-500/30 rounded-full">
-            {transactions.length} flagged
+            {displayTransactions.length} flagged
           </span>
         </div>
 
@@ -339,7 +345,7 @@ export default function SuspiciousTransactionsTable() {
       {/* Footer */}
       <div className="p-3 border-t border-slate-800/50 flex items-center justify-between">
         <span className="text-xs text-slate-500">
-          Showing {filteredTransactions.length} of {transactions.length} transactions
+          Showing {filteredTransactions.length} of {displayTransactions.length} transactions
         </span>
         <button className="text-xs text-cyan-400 hover:text-cyan-300 font-medium transition-colors flex items-center gap-1">
           View All Transactions <ExternalLink className="w-3 h-3" />

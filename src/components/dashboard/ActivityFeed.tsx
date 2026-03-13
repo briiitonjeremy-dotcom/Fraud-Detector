@@ -81,7 +81,13 @@ const actionIconMap: Record<string, typeof Activity> = {
   "Anomaly Detected": AlertTriangle,
 };
 
-export default function ActivityFeed() {
+interface ActivityFeedProps {
+  activities?: ActivityItem[];
+}
+
+export default function ActivityFeed({ activities: providedActivities }: ActivityFeedProps) {
+  const displayActivities = providedActivities && providedActivities.length > 0 ? providedActivities : activities;
+  
   return (
     <div className="rounded-xl border border-slate-800/60 bg-slate-900/50">
       {/* Header */}
@@ -93,12 +99,12 @@ export default function ActivityFeed() {
             Live
           </span>
         </div>
-        <span className="text-xs text-slate-500">{activities.length} events</span>
+        <span className="text-xs text-slate-500">{displayActivities.length} events</span>
       </div>
 
       {/* Activity List */}
       <div className="max-h-96 overflow-y-auto">
-        {activities.map((item, index) => {
+        {displayActivities.map((item, index) => {
           const config = statusConfig[item.status];
           const StatusIcon = config.icon;
           const ActionIcon = actionIconMap[item.action] || Activity;

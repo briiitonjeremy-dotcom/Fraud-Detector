@@ -154,28 +154,28 @@ function KPICard({ title, value, change, changeLabel, icon, format = "number", c
   );
 }
 
+interface KPIData {
+  totalTransactions: number;
+  incomingTransfers: number;
+  outgoingTransfers: number;
+  billPayments: number;
+  fraudFlags: number;
+  highRiskRecipients: number;
+  fraudRate?: string;
+  riskScore?: number;
+}
+
 interface KPIGridProps {
-  data?: {
-    totalTransactions: number;
-    incomingTransfers: number;
-    outgoingTransfers: number;
-    billPayments: number;
-    fraudFlags: number;
-    highRiskRecipients: number;
-  };
+  data?: KPIData | null;
 }
 
 export default function KPIGrid({ data }: KPIGridProps) {
-  const defaultData = {
-    totalTransactions: 248562,
-    incomingTransfers: 142890,
-    outgoingTransfers: 89540,
-    billPayments: 16132,
-    fraudFlags: 1847,
-    highRiskRecipients: 342,
-  };
+  // If no data, return null (empty state handled by parent)
+  if (!data) {
+    return null;
+  }
 
-  const stats = data || defaultData;
+  const stats = data;
 
   return (
     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">

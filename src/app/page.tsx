@@ -1,37 +1,10 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
-import { Upload, BrainCircuit, Zap, Settings, Database, AlertTriangle, Shield, Calendar, TrendingUp, Activity, LayoutGrid, LogIn, LogOut as LogOutIcon, User as UserIcon } from "lucide-react";
+import { isAdmin, logout } from "@/lib/api";
 
 const ML_SERVICE_URL = "https://ml-file-for-url.onrender.com";
-
-interface ProcessedTransaction {
-  transaction_id?: string;
-  nameorig?: string;
-  nameDest?: string;
-  amount?: number;
-  fraud_score?: number | null;
-  is_fraud?: boolean;
-  step?: number;
-  [key: string]: any;
-}
-
-interface ProcessedResults {
-  total_transactions: number;
-  fraud_detected: number;
-  fraud_rate: number;
-  processedAt?: string;
-}
-
-interface FraudCase {
-  transaction_id: string;
-  amount: number;
-  fraud_score: number;
-  savedAt: string;
-  nameorig?: string;
-  nameDest?: string;
-}
 
 const defaultStats = {
   totalTransactions: 0,
@@ -43,78 +16,74 @@ const defaultStats = {
 export default function Dashboard() {
   const [mlStatus, setMlStatus] = useState<"loading" | "online" | "offline">("loading");
   const [hasRealData, setHasRealData] = useState(false);
+  const [processedAt, setProcessedAt] = useState<string>("");
   const [stats, setStats] = useState(defaultStats);
-  const [transactions, setTransactions] = useState<ProcessedTransaction[]>([]);
-  const [savedFraudCases, setSavedFraudCases] = useState<FraudCase[]>([]);
-  const [saveStatus, setSaveStatus] = useState<{saving: boolean; message: string}>({saving: false, message: ""});
-  const [userRole, setUserRole] = useState<string | null>(null);
-  const [loggedIn, setLoggedIn] = useState(false);
-  const [alerts, setAlerts] = useState<any[]>([]);
-  const [activities, setActivities] = useState<any[]>([]);
-  const [fraudTrend, setFraudTrend] = useState<number[]>([]);
-  const [highRiskVendors, setHighRiskVendors] = useState<any[]>([]);
-  const [suspiciousTxns, setSuspiciousTxns] = useState<ProcessedTransaction[]>([]);
+  const [vendors, setVendors] = useState<{name: string, transactions: number, fraud: number, rate: number}[]>([]);
+  const [alerts, setAlerts] = useState<{time: string, severity: string, message: string}[]>([]);
+  const [recentTransaction, setRecentTransaction] = useState<{id: string, score: number, isFraud: boolean, amount?: number, vendor?: string} | null>(null);
+  const [recentTransactions, setRecentTransactions] = useState<{transaction_id: string, amount: number, vendor_name?: string, fraud_score?: number | null, is_fraud?: boolean, nameorig?: string, nameDest?: string}[]>([]);
+  const [savedFraudCases, setSavedFraudCases] = useState<{transaction_id: string, amount: number, fraud_score: number, savedAt: string, nameorig?: string, nameDest?: string}[]>([]);
+  const [saveStatus, setSaveStatus] = useState<{saving: boolean, message: string}>({saving: false, message: ""});
+  const [userRole, setUserRole] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null;
+    return isAdmin() ? "admin" : (localStorage.getItem("userRole") || null);
+  });
+  const [loggedIn, setLoggedIn] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return !!localStorage.getItem("session_token");
+  });
 
-  const navItems: { href: string; icon: any; label: string; active?: boolean; onClick?: () => void }[] = [
-    { href: "/", icon: LayoutGrid, label: "Dashboard", active: true },
-    { href: "/upload", icon: Upload, label: "Upload Dataset", active: false },
-    { href: "/explain", icon: BrainCircuit, label: "Explain", active: false },
-    { href: "/api-test", icon: Zap, label: "API Test", active: false },
-    { href: "/admin", icon: Settings, label: "Admin", active: false },
+  const navItems = [
+    { href: "/", icon: "⬡", label: "Dashboard", active: true },
+    { href: "/upload", icon: "⇪", label: "Upload Dataset", active: false },
+    { href: "/explain", icon: "⟁", label: "Explain", active: false },
+    { href: "/api-test", icon: "⚡", label: "API Test", active: false },
+    { href: "/admin", icon: "⚙", label: "Admin", active: false },
     loggedIn 
-      ? { href: "#", icon: LogOutIcon, label: "Logout", active: false, onClick: () => { localStorage.clear(); window.location.href = "/"; } }
-      : { href: "/login", icon: LogIn, label: "Login", active: false },
+      ? { href: "#", icon: "🚪", label: "Logout", active: false, onClick: () => { logout(); window.location.href = "/"; } }
+      : { href: "/login", icon: "🔐", label: "Login", active: false },
   ];
 
-  const handleLogout = useCallback(() => {
-    localStorage.removeItem("session_token");
-    localStorage.removeItem("userRole");
-    localStorage.removeItem("user");
-    localStorage.removeItem("isActive");
-    window.location.href = "/";
-  }, []);
-
-  const handleClearData = useCallback(() => {
-    if (confirm("Are you sure you want to clear all stored data?")) {
+  const handleClearData = () => {
+    if (confirm("Are you sure you want to clear all stored data? This will remove all processed datasets and transaction history.")) {
       localStorage.removeItem('fraudguard_results');
       localStorage.removeItem('fraudguard_transactions');
       localStorage.removeItem('fraudguard_fraud_cases');
       setStats(defaultStats);
-      setTransactions([]);
+      setVendors([]);
       setAlerts([]);
-      setActivities([]);
       setHasRealData(false);
-      setFraudTrend([]);
-      setHighRiskVendors([]);
-      setSuspiciousTxns([]);
+      setProcessedAt("");
+      setRecentTransaction(null);
+      setRecentTransactions([]);
       setSavedFraudCases([]);
     }
-  }, []);
+  };
 
-  const handleSaveToDatabase = useCallback(async () => {
-    if (transactions.length === 0) {
-      setSaveStatus({ saving: false, message: "No transactions to save" });
+  const handleSaveToDatabase = async () => {
+    if (recentTransactions.length === 0) {
+      setSaveStatus({saving: false, message: "No transactions to save"});
       return;
     }
-
-    setSaveStatus({ saving: true, message: "" });
-
+    
+    setSaveStatus({saving: true, message: ""});
+    
     try {
-      const highRiskTransactions = transactions.filter(txn => 
+      const highRiskTransactions = recentTransactions.filter(txn => 
         (txn.fraud_score !== null && txn.fraud_score !== undefined && txn.fraud_score > 50) || 
         txn.is_fraud === true
       );
       
       if (highRiskTransactions.length === 0) {
-        setSaveStatus({ saving: false, message: "No high-risk transactions (>50% fraud probability) found" });
+        setSaveStatus({saving: false, message: "No high-risk transactions (>50% fraud probability) found"});
         return;
       }
       
       const existingCases = localStorage.getItem('fraudguard_fraud_cases');
-      const existingCasesArray: FraudCase[] = existingCases ? JSON.parse(existingCases) : [];
+      const existingCasesArray = existingCases ? JSON.parse(existingCases) : [];
       
       const newFraudCases = highRiskTransactions.map(txn => ({
-        transaction_id: txn.transaction_id || txn.nameorig || `TXN_${Date.now()}_${Math.random()}`,
+        transaction_id: txn.transaction_id || txn.nameorig || `TXN_${Date.now()}`,
         amount: txn.amount || 0,
         fraud_score: txn.fraud_score || (txn.is_fraud ? 95 : 0),
         savedAt: new Date().toISOString(),
@@ -122,694 +91,701 @@ export default function Dashboard() {
         nameDest: txn.nameDest
       }));
       
-      const existingIds = new Set(existingCasesArray.map(c => c.transaction_id));
-      const uniqueNewCases = newFraudCases.filter(c => !existingIds.has(c.transaction_id));
+      const existingIds = new Set(existingCasesArray.map((c: any) => c.transaction_id));
+      const uniqueNewCases = newFraudCases.filter((c: any) => !existingIds.has(c.transaction_id));
       const allCases = [...existingCasesArray, ...uniqueNewCases];
       
       localStorage.setItem('fraudguard_fraud_cases', JSON.stringify(allCases));
       setSavedFraudCases(allCases);
       
-      setSaveStatus({ saving: false, message: `Successfully saved ${uniqueNewCases.length} high-risk transaction(s) to database!` });
+      setSaveStatus({saving: false, message: `Successfully saved ${uniqueNewCases.length} high-risk transaction(s) to database!`});
     } catch (error) {
-      setSaveStatus({ saving: false, message: "Error saving transactions to database" });
+      setSaveStatus({saving: false, message: "Error saving transactions to database"});
     }
-  }, [transactions]);
+  };
 
-  const generateAnalytics = useCallback((txns: ProcessedTransaction[], results: ProcessedResults) => {
-    const newAlerts: any[] = [];
-    const newActivities: any[] = [];
-    
-    newActivities.push({
-      id: "1",
-      time: new Date().toLocaleTimeString(),
-      action: "Dataset Uploaded",
-      source: "Upload System",
-      status: "success" as const,
-      details: `${results.total_transactions} transactions loaded`,
-    });
-
-    if (results.fraud_rate > 5) {
-      newAlerts.push({
-        id: "alert-1",
-        time: new Date().toLocaleTimeString(),
-        severity: "critical" as const,
-        title: "High Fraud Rate Detected",
-        message: `Fraud rate is ${results.fraud_rate.toFixed(2)}%, exceeding the 5% threshold`,
-        source: "ML Engine",
-        percentage: results.fraud_rate,
-      });
-    } else if (results.fraud_rate > 2) {
-      newAlerts.push({
-        id: "alert-1",
-        time: new Date().toLocaleTimeString(),
-        severity: "warning" as const,
-        title: "Elevated Fraud Rate",
-        message: `Fraud rate is ${results.fraud_rate.toFixed(2)}%, above normal levels`,
-        source: "ML Engine",
-        percentage: results.fraud_rate,
-      });
-    }
-
-    if (results.fraud_detected > 0) {
-      newActivities.push({
-        id: "2",
-        time: new Date().toLocaleTimeString(),
-        action: "Fraud Detected",
-        source: "ML Model",
-        status: "warning" as const,
-        details: `${results.fraud_detected} fraudulent transactions identified`,
-      });
-
-      newAlerts.push({
-        id: "alert-2",
-        time: new Date().toLocaleTimeString(),
-        severity: results.fraud_rate > 5 ? "critical" as const : "warning" as const,
-        title: `${results.fraud_detected} Fraud Cases Found`,
-        message: `Out of ${results.total_transactions} transactions, ${results.fraud_detected} were flagged as fraudulent`,
-        source: "Analysis Engine",
-        percentage: results.fraud_rate,
-      });
-    }
-
-    const suspicious = txns.filter(t => (t.fraud_score ?? 0) > 50 || t.is_fraud === true);
-    if (suspicious.length > 10) {
-      newAlerts.push({
-        id: "alert-3",
-        time: new Date().toLocaleTimeString(),
-        severity: "warning" as const,
-        title: "High Volume of Suspicious Activity",
-        message: `${suspicious.length} transactions have fraud scores above 50%`,
-        source: "Risk Engine",
-        percentage: Math.round((suspicious.length / txns.length) * 100),
-      });
-    }
-
-    setAlerts(newAlerts);
-    setActivities(newActivities);
-
-    const fraudCount = txns.filter(t => (t.fraud_score ?? 0) > 50 || t.is_fraud === true).length;
-    const batchSize = Math.ceil(txns.length / 14);
-    const trendData: number[] = [];
-    for (let i = 0; i < 14; i++) {
-      const start = i * batchSize;
-      const end = Math.min(start + batchSize, txns.length);
-      const batch = txns.slice(start, end);
-      const batchFraud = batch.filter(t => (t.fraud_score ?? 0) > 50 || t.is_fraud === true).length;
-      trendData.push(batchFraud);
-    }
-    setFraudTrend(trendData);
-
-    const vendorMap = new Map<string, { name: string; transactions: number; fraud: number }>();
-    txns.forEach(txn => {
-      const vendor = txn.nameorig || txn.nameDest || "Unknown";
-      const existing = vendorMap.get(vendor) || { name: vendor, transactions: 0, fraud: 0 };
-      existing.transactions++;
-      if ((txn.fraud_score ?? 0) > 50 || txn.is_fraud === true) {
-        existing.fraud++;
-      }
-      vendorMap.set(vendor, existing);
-    });
-    const vendors = Array.from(vendorMap.values())
-      .map(v => ({ ...v, rate: v.transactions > 0 ? (v.fraud / v.transactions) * 100 : 0 }))
-      .sort((a, b) => b.rate - a.rate)
-      .slice(0, 5);
-    setHighRiskVendors(vendors);
-
-    setSuspiciousTxns(suspicious.slice(0, 50));
-  }, []);
-
-  const checkMlServiceHealth = useCallback(async () => {
+  const checkMlServiceHealth = async () => {
     try {
-      const response = await fetch(`${ML_SERVICE_URL}/health`, { method: "GET" });
+      let response = await fetch(`${ML_SERVICE_URL}/health`, {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+      });
+      
+      if (!response.ok) {
+        response = await fetch(`${ML_SERVICE_URL}/`, {
+          method: "GET",
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      
       return response.ok;
-    } catch {
+    } catch (error) {
+      console.error("[Dashboard] ML service health check failed:", error);
       return false;
     }
-  }, []);
+  };
 
   useEffect(() => {
     let mounted = true;
-
+    
     const fetchData = async () => {
       try {
-        const storedResults = localStorage.getItem('fraudguard_results');
-        const storedTransactions = localStorage.getItem('fraudguard_transactions');
-        const savedCasesData = localStorage.getItem('fraudguard_fraud_cases');
-
-        if (storedResults && storedTransactions && mounted) {
-          const results: ProcessedResults = JSON.parse(storedResults);
-          const txns: ProcessedTransaction[] = JSON.parse(storedTransactions);
-
+        const storedData = localStorage.getItem('fraudguard_results');
+        if (storedData && mounted) {
+          const parsed = JSON.parse(storedData);
           setStats({
-            totalTransactions: results.total_transactions || 0,
-            fraudDetected: results.fraud_detected || 0,
-            fraudRate: results.fraud_rate || 0,
-            riskScore: Math.round((results.fraud_rate || 0) * 10),
+            totalTransactions: parsed.total_transactions || 0,
+            fraudDetected: parsed.fraud_detected || 0,
+            fraudRate: parsed.fraud_rate || 0,
+            riskScore: Math.round((parsed.fraud_rate || 0) * 10),
           });
-          
-          setTransactions(txns);
+          setProcessedAt(parsed.processedAt || "");
           setHasRealData(true);
-
-          generateAnalytics(txns, results);
         }
-
-        if (savedCasesData && mounted) {
-          const cases = JSON.parse(savedCasesData);
+        
+        const storedTransactions = localStorage.getItem('fraudguard_transactions');
+        if (storedTransactions && mounted) {
+          const txns = JSON.parse(storedTransactions);
+          if (txns.length > 0) {
+            const latestTxn = txns[0];
+            setRecentTransaction({
+              id: latestTxn.transaction_id || latestTxn.nameorig || latestTxn.nameOrig || 'Unknown',
+              score: latestTxn.fraud_score !== null && latestTxn.fraud_score !== undefined 
+                ? latestTxn.fraud_score 
+                : (latestTxn.is_fraud ? 95 : 0),
+              isFraud: latestTxn.is_fraud || false,
+              amount: latestTxn.amount,
+              vendor: latestTxn.nameorig || latestTxn.nameOrig || latestTxn.vendor_name
+            });
+            setRecentTransactions(txns.slice(0, 50));
+            setHasRealData(true);
+          }
+        }
+        
+        const savedFraudCasesData = localStorage.getItem('fraudguard_fraud_cases');
+        if (savedFraudCasesData && mounted) {
+          const cases = JSON.parse(savedFraudCasesData);
           setSavedFraudCases(cases);
         }
       } catch (e) {
         console.error("[Dashboard] Error reading localStorage:", e);
       }
-
+      
       const isMlOnline = await checkMlServiceHealth();
       if (mounted) {
         setMlStatus(isMlOnline ? "online" : "offline");
       }
     };
-
-    const checkAuth = () => {
-      const token = localStorage.getItem("session_token");
-      const role = localStorage.getItem("userRole");
-      setLoggedIn(!!token);
-      setUserRole(role);
-    };
-
+    
     fetchData();
-    checkAuth();
-
     const interval = setInterval(fetchData, 30000);
-    return () => {
-      mounted = false;
-      clearInterval(interval);
-    };
-  }, [checkMlServiceHealth, generateAnalytics]);
-
-  const LayoutDashboard = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>;
-  const LogOut = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>;
-  const User = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>;
+    return () => { mounted = false; clearInterval(interval); };
+  }, []);
 
   return (
-    <div className="flex min-h-screen bg-slate-950">
-      <aside className="w-64 min-h-screen bg-slate-900/95 border-r border-slate-800/60 flex flex-col">
-        <div className="p-5 border-b border-slate-800/50">
-          <Link href="/" className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center">
-              <Shield className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <h1 className="text-lg font-bold text-white">FraudGuard</h1>
-              <p className="text-xs text-slate-500">Fraud Detection</p>
-            </div>
-          </Link>
+    <div className="app-container">
+      <aside className="sidebar">
+        <div className="sidebar-logo">
+          <div className="sidebar-logo-icon">🛡</div>
+          <h1>FraudGuard</h1>
         </div>
-
-        <nav className="flex-1 p-4 space-y-1">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            return (
-              item.onClick ? (
-                <button
-                  key={item.label}
-                  onClick={item.onClick}
-                  className="flex items-center gap-3 px-4 py-3 rounded-xl text-slate-400 hover:bg-slate-800/50 hover:text-white transition-all duration-200 w-full"
-                >
-                  <Icon className="w-5 h-5" />
-                  <span className="text-sm font-medium">{item.label}</span>
-                </button>
-              ) : (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 ${
-                    item.active 
-                      ? "bg-cyan-500/10 text-cyan-400 border border-cyan-500/30" 
-                      : "text-slate-400 hover:bg-slate-800/50 hover:text-white"
-                  }`}
-                >
-                  <Icon className={`w-5 h-5 ${item.active ? "text-cyan-400" : ""}`} />
-                  <span className="text-sm font-medium">{item.label}</span>
-                </Link>
-              )
-            );
-          })}
+        
+        <nav className="sidebar-nav">
+          {navItems.map((item) => (
+            item.onClick ? (
+              <button
+                key={item.label}
+                onClick={item.onClick}
+                className={`nav-item ${item.active ? "active" : ""}`}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', width: '100%', textAlign: 'left' }}
+              >
+                <span className="nav-icon">{item.icon}</span>
+                <span>{item.label}</span>
+              </button>
+            ) : (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`nav-item ${item.active ? "active" : ""}`}
+              >
+                <span className="nav-icon">{item.icon}</span>
+                <span>{item.label}</span>
+              </Link>
+            )
+          ))}
         </nav>
 
-        <div className="p-4 space-y-3 border-t border-slate-800/50">
-          {loggedIn && userRole && (
-            <div className={`p-3 rounded-xl border ${userRole === "admin" ? "bg-purple-500/10 border-purple-500/30" : "bg-blue-500/10 border-blue-500/30"}`}>
-              <div className="flex items-center gap-2 mb-2">
-                <UserIcon className={`w-4 h-4 ${userRole === "admin" ? "text-purple-400" : "text-blue-400"}`} />
-                <span className={`text-sm font-semibold capitalize ${userRole === "admin" ? "text-purple-400" : "text-blue-400"}`}>{userRole}</span>
+        <div style={{ marginTop: "auto", paddingTop: "2rem" }}>
+          {loggedIn && (
+            <div style={{ 
+              padding: "1rem", 
+              marginBottom: "1rem",
+              background: userRole === "admin" ? "rgba(168, 85, 247, 0.1)" : userRole === "analyst" ? "rgba(59, 130, 246, 0.1)" : "rgba(34, 197, 94, 0.1)", 
+              borderRadius: "12px", 
+              border: `1px solid ${userRole === "admin" ? "rgba(168, 85, 247, 0.3)" : userRole === "analyst" ? "rgba(59, 130, 246, 0.3)" : "rgba(34, 197, 94, 0.3)"}`
+            }}>
+              <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.5rem" }}>LOGGED IN AS</div>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.25rem" }}>
+                <span style={{ 
+                  fontSize: "0.875rem", 
+                  fontWeight: "bold",
+                  color: userRole === "admin" ? "#a855f7" : userRole === "analyst" ? "#3b82f6" : "#22c55e",
+                  textTransform: "capitalize"
+                }}>
+                  {userRole}
+                </span>
+                <span style={{ 
+                  fontSize: "0.625rem", 
+                  padding: "2px 6px", 
+                  borderRadius: "4px", 
+                  background: localStorage.getItem("isActive") !== "false" ? "rgba(34, 197, 94, 0.2)" : "rgba(239, 68, 68, 0.2)",
+                  color: localStorage.getItem("isActive") !== "false" ? "#22c55e" : "#ef4444"
+                }}>
+                  {localStorage.getItem("isActive") !== "false" ? "ACTIVE" : "INACTIVE"}
+                </span>
               </div>
-              <p className="text-xs text-slate-500 truncate">
+              <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)", wordBreak: "break-all" }}>
                 {localStorage.getItem("user") ? JSON.parse(localStorage.getItem("user") || "{}").email : ""}
-              </p>
+              </div>
             </div>
           )}
-
-          <div className={`p-3 rounded-xl border ${mlStatus === "online" ? "bg-emerald-500/10 border-emerald-500/30" : mlStatus === "loading" ? "bg-amber-500/10 border-amber-500/30" : "bg-red-500/10 border-red-500/30"}`}>
-            <div className="flex items-center gap-2 mb-1">
-              <Activity className={`w-4 h-4 ${mlStatus === "online" ? "text-emerald-400" : mlStatus === "loading" ? "text-amber-400" : "text-red-400"}`} />
-              <span className="text-xs font-medium text-slate-400">ML Backend</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className={`w-2 h-2 rounded-full ${
-                mlStatus === "online" ? "bg-emerald-500 animate-pulse" : mlStatus === "loading" ? "bg-amber-500 animate-pulse" : "bg-red-500"
-              }`} />
-              <span className="text-xs text-slate-500">
+          <div style={{ 
+            padding: "1rem", 
+            background: "rgba(59, 130, 246, 0.1)", 
+            borderRadius: "12px", 
+            border: "1px solid rgba(59, 130, 246, 0.2)"
+          }}>
+            <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.5rem" }}>ML BACKEND</div>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              <span style={{ 
+                width: "8px", 
+                height: "8px", 
+                borderRadius: "50%", 
+                background: mlStatus === "online" ? "var(--success)" : mlStatus === "loading" ? "var(--warning)" : "var(--danger)",
+                boxShadow: mlStatus === "online" ? "0 0 8px var(--success)" : "none"
+              }} />
+              <span style={{ fontSize: "0.875rem", color: "var(--text-secondary)" }}>
                 {mlStatus === "online" ? "Connected" : mlStatus === "loading" ? "Connecting..." : "Disconnected"}
               </span>
             </div>
           </div>
-
-          {loggedIn && (
-            <button
-              onClick={handleLogout}
-              className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-slate-400 hover:bg-red-500/10 hover:text-red-400 transition-all duration-200"
-            >
-              <LogOutIcon className="w-5 h-5" />
-              <span className="text-sm font-medium">Logout</span>
-            </button>
-          )}
         </div>
       </aside>
 
-      <main className="flex-1 p-6 lg:p-8 overflow-y-auto">
-        {mlStatus === "offline" && (
-          <div className="mb-6 p-4 bg-red-500/10 border border-red-500/30 rounded-xl flex items-center gap-3">
-            <AlertTriangle className="w-5 h-5 text-red-400" />
-            <div>
-              <p className="text-sm font-semibold text-red-400">ML Processing Offline</p>
-              <p className="text-xs text-slate-400">Fraud detection is unavailable. Please ensure the ML service is running.</p>
+      <main className="main-content">
+        <div className="page-header">
+          {mlStatus === "offline" && (
+            <div style={{ 
+              marginBottom: '1rem', 
+              padding: '1rem', 
+              background: 'rgba(239, 68, 68, 0.15)', 
+              border: '1px solid rgba(239, 68, 68, 0.3)', 
+              borderRadius: '12px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.75rem'
+            }}>
+              <span style={{ fontSize: '1.5rem' }}>⚠️</span>
+              <div>
+                <div style={{ fontWeight: 600, color: 'var(--danger)' }}>ML Processing Offline</div>
+                <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+                  Fraud detection is unavailable. Please ensure the ML service is running at {ML_SERVICE_URL}
+                </div>
+              </div>
             </div>
-          </div>
-        )}
-
-        <div className="flex items-center justify-between mb-8">
-          <div>
-            <h1 className="text-2xl font-bold text-white">Fraud Detection Dashboard</h1>
-            <p className="text-sm text-slate-400 mt-1">Real-time monitoring and analytics for financial transactions</p>
-          </div>
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2 px-4 py-2 bg-slate-900/50 border border-slate-800 rounded-xl">
-              <Calendar className="w-4 h-4 text-slate-500" />
-              <span className="text-sm text-slate-400">
+          )}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+            <div>
+              <h1 className="page-title">Fraud Detection Dashboard</h1>
+              <p className="page-subtitle">Real-time monitoring and analytics for financial transactions</p>
+            </div>
+            <div style={{ 
+              display: "flex", 
+              alignItems: "center", 
+              gap: "0.75rem",
+              padding: "0.5rem 1rem",
+              background: "rgba(39, 39, 42, 0.6)",
+              backdropFilter: "blur(10px)",
+              borderRadius: "12px",
+              border: "1px solid rgba(63, 63, 70, 0.5)"
+            }}>
+              <span style={{ fontSize: "1.25rem" }}>◷</span>
+              <span style={{ fontSize: "0.875rem", color: "var(--text-secondary)" }}>
                 {new Date().toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
               </span>
             </div>
             {hasRealData && (
-              <div className="flex gap-2">
-                <button
+              <div style={{ display: 'flex', gap: '0.75rem' }}>
+                <button 
                   onClick={handleSaveToDatabase}
+                  className="btn btn-primary"
+                  style={{ padding: "0.5rem 1rem", fontSize: "0.875rem" }}
                   disabled={saveStatus.saving}
-                  className="flex items-center gap-2 px-4 py-2 bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 rounded-xl hover:bg-cyan-500/20 transition-colors disabled:opacity-50"
+                  title="Save high-risk transactions (>50% fraud probability) to database"
                 >
-                  <Database className="w-4 h-4" />
-                  <span className="text-sm font-medium">{saveStatus.saving ? "Saving..." : "Save Suspicious"}</span>
+                  {saveStatus.saving ? '⏳ Saving...' : '💾 Save Suspicious'}
                 </button>
-                <button
+                <button 
                   onClick={handleClearData}
-                  className="flex items-center gap-2 px-4 py-2 bg-slate-800/50 border border-slate-700 text-slate-400 rounded-xl hover:bg-slate-700/50 transition-colors"
+                  className="btn btn-secondary"
+                  style={{ padding: "0.5rem 1rem", fontSize: "0.875rem" }}
+                  title="Clear all displayed data"
                 >
-                  <TrendingUp className="w-4 h-4" />
-                  <span className="text-sm font-medium">Clear Data</span>
+                  🗑 Clear Displayed Data
                 </button>
               </div>
             )}
           </div>
         </div>
-
+        
         {saveStatus.message && (
-          <div className={`mb-6 p-4 rounded-xl border ${
-            saveStatus.message.includes("Successfully") ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400" : "bg-amber-500/10 border-amber-500/30 text-amber-400"
-          }`}>
+          <div style={{ 
+            marginTop: '1rem', 
+            padding: '0.75rem 1rem', 
+            background: saveStatus.message.includes('Successfully') ? 'rgba(16, 185, 129, 0.1)' : 'rgba(245, 158, 11, 0.1)',
+            border: `1px solid ${saveStatus.message.includes('Successfully') ? 'rgba(16, 185, 129, 0.3)' : 'rgba(245, 158, 11, 0.3)'}`,
+            borderRadius: '8px',
+            color: saveStatus.message.includes('Successfully') ? 'var(--success)' : 'var(--warning)',
+            fontSize: '0.875rem'
+          }}>
             {saveStatus.message}
           </div>
         )}
 
-        {hasRealData ? (
-          <>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-              <div className="relative overflow-hidden rounded-xl border border-cyan-500/20 bg-gradient-to-br from-cyan-500/10 to-blue-600/5 p-5">
-                <div className="absolute top-0 right-0 w-20 h-20 opacity-10 transform translate-x-8 -translate-y-8">
-                  <div className="w-full h-full rounded-full bg-gradient-to-br from-cyan-400 to-transparent blur-2xl" />
-                </div>
-                <p className="text-xs text-slate-400 font-medium uppercase tracking-wider mb-1">Total Transactions</p>
-                <p className="text-2xl font-bold text-white">{stats.totalTransactions.toLocaleString()}</p>
-                <p className="text-xs text-slate-500 mt-2">Analyzed transactions</p>
-              </div>
-
-              <div className="relative overflow-hidden rounded-xl border border-red-500/20 bg-gradient-to-br from-red-500/10 to-rose-600/5 p-5">
-                <div className="absolute top-0 right-0 w-20 h-20 opacity-10 transform translate-x-8 -translate-y-8">
-                  <div className="w-full h-full rounded-full bg-gradient-to-br from-red-400 to-transparent blur-2xl" />
-                </div>
-                <p className="text-xs text-slate-400 font-medium uppercase tracking-wider mb-1">Fraud Detected</p>
-                <p className="text-2xl font-bold text-white">{stats.fraudDetected.toLocaleString()}</p>
-                <p className="text-xs text-slate-500 mt-2">Flagged transactions</p>
-              </div>
-
-              <div className="relative overflow-hidden rounded-xl border border-amber-500/20 bg-gradient-to-br from-amber-500/10 to-orange-600/5 p-5">
-                <div className="absolute top-0 right-0 w-20 h-20 opacity-10 transform translate-x-8 -translate-y-8">
-                  <div className="w-full h-full rounded-full bg-gradient-to-br from-amber-400 to-transparent blur-2xl" />
-                </div>
-                <p className="text-xs text-slate-400 font-medium uppercase tracking-wider mb-1">Fraud Rate</p>
-                <p className="text-2xl font-bold text-white">{stats.fraudRate.toFixed(2)}%</p>
-                <p className="text-xs text-slate-500 mt-2">Fraud percentage</p>
-              </div>
-
-              <div className={`relative overflow-hidden rounded-xl border ${stats.riskScore > 70 ? "border-red-500/20 bg-gradient-to-br from-red-500/10 to-rose-600/5" : stats.riskScore > 40 ? "border-amber-500/20 bg-gradient-to-br from-amber-500/10 to-orange-600/5" : "border-emerald-500/20 bg-gradient-to-br from-emerald-500/10 to-teal-600/5"} p-5`}>
-                <div className="absolute top-0 right-0 w-20 h-20 opacity-10 transform translate-x-8 -translate-y-8">
-                  <div className={`w-full h-full rounded-full bg-gradient-to-br ${stats.riskScore > 70 ? "from-red-400" : stats.riskScore > 40 ? "from-amber-400" : "from-emerald-400"} to-transparent blur-2xl`} />
-                </div>
-                <p className="text-xs text-slate-400 font-medium uppercase tracking-wider mb-1">Risk Score</p>
-                <p className={`text-2xl font-bold ${stats.riskScore > 70 ? "text-red-400" : stats.riskScore > 40 ? "text-amber-400" : "text-emerald-400"}`}>{stats.riskScore}</p>
-                <p className={`text-xs mt-2 ${stats.riskScore > 70 ? "text-red-400" : stats.riskScore > 40 ? "text-amber-400" : "text-emerald-400"}`}>
-                  {stats.riskScore > 70 ? "HIGH RISK" : stats.riskScore > 40 ? "MEDIUM RISK" : "LOW RISK"}
-                </p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-              <div className="rounded-xl border border-slate-800/60 bg-slate-900/50 p-5">
-                <h3 className="text-base font-semibold text-white mb-4">Risk Score</h3>
-                <div className="relative flex justify-center py-4">
-                  <div className="relative w-40 h-20 overflow-hidden">
-                    <svg className="w-full h-full" viewBox="0 0 200 100">
-                      <defs>
-                        <linearGradient id="gaugeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-                          <stop offset="0%" stopColor="#10b981" />
-                          <stop offset="50%" stopColor="#f59e0b" />
-                          <stop offset="100%" stopColor="#ef4444" />
-                        </linearGradient>
-                      </defs>
-                      <path d="M 20 100 A 80 80 0 0 1 180 100" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="16" strokeLinecap="round" />
-                      <path d="M 20 100 A 80 80 0 0 1 180 100" fill="none" stroke="url(#gaugeGrad)" strokeWidth="16" strokeLinecap="round" strokeDasharray={`${(stats.riskScore / 100) * 251.2} 251.2`} className="transition-all duration-1000" />
-                    </svg>
-                    <div className="absolute bottom-0 left-1/2 w-0.5 h-14 bg-white origin-bottom transition-all duration-1000" style={{ transform: `translateX(-50%) rotate(${-90 + (stats.riskScore / 100) * 180}deg)` }} />
+        <div className="stats-grid">
+          {recentTransaction && (
+            <div className="stat-card" style={{ gridColumn: "span 2" }}>
+              <div className="stat-icon blue">⟁</div>
+              <div className="stat-label">Latest Analyzed Transaction</div>
+              <div style={{ display: "flex", alignItems: "center", gap: "1rem", marginTop: "0.5rem" }}>
+                <div>
+                  <div style={{ fontSize: "1.25rem", fontWeight: 600, color: "var(--text-primary)" }}>
+                    {recentTransaction.id}
+                  </div>
+                  <div style={{ fontSize: "0.875rem", color: "var(--text-muted)" }}>
+                    {recentTransaction.vendor || "Unknown Vendor"} • ${recentTransaction.amount?.toLocaleString() || "—"}
                   </div>
                 </div>
-                <div className="text-center -mt-2">
-                  <span className="text-4xl font-bold text-white">{stats.riskScore}</span>
-                  <span className="text-lg text-slate-500">/100</span>
+                <div style={{ marginLeft: "auto", textAlign: "right" }}>
+                  <div style={{ fontSize: "1.5rem", fontWeight: 700, 
+                    color: recentTransaction.isFraud ? "var(--danger)" : "var(--success)" 
+                  }}>
+                    {Math.round(recentTransaction.score * 100)}%
+                  </div>
+                  <span className={recentTransaction.isFraud ? "badge badge-danger" : "badge badge-success"}>
+                    {recentTransaction.isFraud ? "FRAUD" : "LEGITIMATE"}
+                  </span>
                 </div>
-                <div className="text-center mt-3">
-                  <span className={`inline-block px-3 py-1 text-xs font-semibold rounded-full ${
-                    stats.riskScore > 70 ? "bg-red-500/20 text-red-400 border border-red-500/30" : stats.riskScore > 40 ? "bg-amber-500/20 text-amber-400 border border-amber-500/30" : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                  }`}>
+              </div>
+            </div>
+          )}
+          
+          <div className="stat-card">
+            <div className="stat-icon blue">⬡</div>
+            <div className="stat-label">Total Transactions</div>
+            {hasRealData ? (
+              <>
+                <div className="stat-value">{stats.totalTransactions.toLocaleString()}</div>
+                <div className="stat-change positive" style={{ marginTop: "0.75rem", fontSize: "0.75rem", color: "var(--success-light)" }}>
+                  ▲ Processed from dataset
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="stat-value" style={{ opacity: 0.5 }}>—</div>
+                <div style={{ marginTop: "0.75rem", fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                  Upload a dataset to see results
+                </div>
+              </>
+            )}
+          </div>
+          
+          <div className="stat-card">
+            <div className="stat-icon red">⚠</div>
+            <div className="stat-label">Fraud Detected</div>
+            {hasRealData ? (
+              <>
+                <div className="stat-value">{stats.fraudDetected.toLocaleString()}</div>
+                <div className="stat-change negative" style={{ marginTop: "0.75rem", fontSize: "0.75rem", color: "var(--danger-light)" }}>
+                  Flagged transactions
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="stat-value" style={{ opacity: 0.5 }}>—</div>
+                <div style={{ marginTop: "0.75rem", fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                  No fraud detected yet
+                </div>
+              </>
+            )}
+          </div>
+          
+          <div className="stat-card">
+            <div className="stat-icon gold">◧</div>
+            <div className="stat-label">Fraud Rate</div>
+            {hasRealData ? (
+              <>
+                <div className="stat-value">{stats.fraudRate.toFixed(2)}%</div>
+                <div className="stat-change negative" style={{ marginTop: "0.75rem", fontSize: "0.75rem", color: "var(--warning-light)" }}>
+                  Based on processed data
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="stat-value" style={{ opacity: 0.5 }}>—</div>
+                <div style={{ marginTop: "0.75rem", fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                  Awaiting dataset
+                </div>
+              </>
+            )}
+          </div>
+          
+          <div className="stat-card">
+            <div className="stat-icon green">◎</div>
+            <div className="stat-label">Risk Score</div>
+            {hasRealData ? (
+              <>
+                <div className="stat-value">{stats.riskScore}</div>
+                <div style={{ marginTop: "0.75rem" }}>
+                  <span className={stats.riskScore > 70 ? "badge badge-danger" : stats.riskScore > 40 ? "badge badge-warning" : "badge badge-success"}>
                     {stats.riskScore > 70 ? "HIGH RISK" : stats.riskScore > 40 ? "MEDIUM RISK" : "LOW RISK"}
                   </span>
                 </div>
-              </div>
-
-              <div className="lg:col-span-2 rounded-xl border border-slate-800/60 bg-slate-900/50 p-5">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-base font-semibold text-white">Fraud Trend</h3>
-                  <span className="flex items-center gap-2 text-xs text-slate-500">
-                    <span className="w-2 h-2 rounded-full bg-red-500" />
-                    Fraud Count
-                  </span>
+              </>
+            ) : (
+              <>
+                <div className="stat-value" style={{ opacity: 0.5 }}>—</div>
+                <div style={{ marginTop: "0.75rem" }}>
+                  <span className="badge badge-info">NO DATA</span>
                 </div>
-                <div className="h-40 flex items-end justify-between gap-2">
-                  {fraudTrend.length > 0 ? fraudTrend.map((val, i) => {
-                    const max = Math.max(...fraudTrend);
-                    return (
-                      <div key={i} className="flex-1 flex flex-col items-center gap-2">
-                        <div className="w-full h-32 flex items-end">
-                          <div 
-                            className="w-full rounded-t-sm bg-gradient-to-t from-red-500/80 to-red-300/60"
-                            style={{ height: `${max > 0 ? (val / max) * 100 : 0}%` }}
-                          />
-                        </div>
-                        <span className="text-[10px] text-slate-500">{i + 1}</span>
-                      </div>
-                    );
-                  }) : (
-                    <div className="flex-1 h-32 flex items-end justify-center gap-1">
-                      {[65, 45, 78, 52, 90, 68, 42, 55, 73, 48, 82, 61, 38, 70].map((val, i) => (
-                        <div key={i} className="flex-1 flex flex-col items-center gap-2">
-                          <div className="w-full h-32 flex items-end">
-                            <div 
-                              className="w-full rounded-t-sm bg-gradient-to-t from-red-500/40 to-red-300/20"
-                              style={{ height: `${val}%` }}
-                            />
-                          </div>
-                          <span className="text-[10px] text-slate-500">{i + 1}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-              <div className="rounded-xl border border-slate-800/60 bg-slate-900/50">
-                <div className="flex items-center justify-between p-4 border-b border-slate-800/50">
-                  <h3 className="text-base font-semibold text-white">Security Alerts</h3>
-                  {alerts.length > 0 && (
-                    <span className="px-2 py-0.5 text-xs font-bold bg-red-500/20 text-red-400 border border-red-500/30 rounded-full">
-                      {alerts.length} Alerts
-                    </span>
-                  )}
-                </div>
-                <div className="max-h-80 overflow-y-auto">
-                  {alerts.length > 0 ? alerts.map((alert) => (
-                    <div key={alert.id} className={`p-4 border-b border-slate-800/30 hover:bg-slate-800/20 ${
-                      alert.severity === "critical" ? "bg-red-500/5" : alert.severity === "warning" ? "bg-amber-500/5" : "bg-cyan-500/5"
-                    }`}>
-                      <div className="flex items-center justify-between mb-2">
-                        <span className={`px-2 py-0.5 text-[10px] font-bold uppercase rounded-full border ${
-                          alert.severity === "critical" ? "bg-red-500/20 text-red-400 border-red-500/30" : alert.severity === "warning" ? "bg-amber-500/20 text-amber-400 border-amber-500/30" : "bg-cyan-500/20 text-cyan-400 border-cyan-500/30"
-                        }`}>
-                          {alert.severity}
-                        </span>
-                        <span className="text-xs text-slate-500">{alert.time}</span>
-                      </div>
-                      <h4 className="text-sm font-medium text-white mb-1">{alert.title}</h4>
-                      <p className="text-xs text-slate-400">{alert.message}</p>
-                    </div>
-                  )) : (
-                    <div className="p-8 text-center">
-                      <p className="text-sm text-slate-500">No security alerts</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="rounded-xl border border-slate-800/60 bg-slate-900/50">
-                <div className="flex items-center justify-between p-4 border-b border-slate-800/50">
-                  <h3 className="text-base font-semibold text-white">Activity Feed</h3>
-                  <span className="flex items-center gap-1.5 text-xs text-slate-500">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                    Live
-                  </span>
-                </div>
-                <div className="max-h-80 overflow-y-auto">
-                  {activities.length > 0 ? activities.map((item, i) => (
-                    <div key={item.id} className="relative pl-6 pr-4 py-3 hover:bg-slate-800/20">
-                      {i < activities.length - 1 && <div className="absolute left-[11px] top-10 bottom-0 w-px bg-slate-800/50" />}
-                      <div className={`absolute left-2 top-3.5 w-2.5 h-2.5 rounded-full border-2 border-slate-900 z-10 ${
-                        item.status === "success" ? "bg-emerald-500" : item.status === "warning" ? "bg-amber-500" : "bg-cyan-500"
-                      } ${item.status === "warning" ? "animate-pulse" : ""}`} />
-                      <div className="flex items-start gap-3">
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-white">{item.action}</p>
-                          <p className="text-xs text-slate-500">{item.source} • {item.details}</p>
-                        </div>
-                        <span className="text-[10px] text-slate-500">{item.time}</span>
-                      </div>
-                    </div>
-                  )) : (
-                    <div className="p-8 text-center">
-                      <p className="text-sm text-slate-500">No recent activity</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {suspiciousTxns.length > 0 && (
-              <div className="rounded-xl border border-red-500/20 bg-red-500/5 mb-6 overflow-hidden">
-                <div className="flex items-center justify-between p-4 border-b border-red-500/20">
-                  <div className="flex items-center gap-3">
-                    <AlertTriangle className="w-5 h-5 text-red-400" />
-                    <h3 className="text-base font-semibold text-white">Suspicious Transactions</h3>
-                  </div>
-                  <span className="px-2 py-0.5 text-xs font-medium bg-red-500/20 text-red-400 border border-red-500/30 rounded-full">
-                    {suspiciousTxns.length} Found
-                  </span>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="border-b border-red-500/20 bg-red-500/5">
-                        <th className="text-left p-4 text-xs font-semibold text-red-400 uppercase">Transaction ID</th>
-                        <th className="text-left p-4 text-xs font-semibold text-red-400 uppercase">From</th>
-                        <th className="text-left p-4 text-xs font-semibold text-red-400 uppercase">To</th>
-                        <th className="text-left p-4 text-xs font-semibold text-red-400 uppercase">Amount</th>
-                        <th className="text-left p-4 text-xs font-semibold text-red-400 uppercase">Fraud Score</th>
-                        <th className="text-left p-4 text-xs font-semibold text-red-400 uppercase">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {suspiciousTxns.slice(0, 15).map((txn, i) => {
-                        const score = txn.fraud_score ?? (txn.is_fraud ? 95 : 0);
-                        return (
-                          <tr key={i} className="border-b border-red-500/10 hover:bg-red-500/5">
-                            <td className="p-4 text-sm font-medium text-white">{txn.transaction_id || txn.nameorig || "N/A"}</td>
-                            <td className="p-4 text-sm text-slate-300">{txn.nameorig || "Unknown"}</td>
-                            <td className="p-4 text-sm text-slate-300">{txn.nameDest || "Unknown"}</td>
-                            <td className="p-4 text-sm font-semibold text-white">${(txn.amount || 0).toLocaleString()}</td>
-                            <td className="p-4">
-                              <div className="flex items-center gap-2">
-                                <div className="w-16 h-2 bg-slate-700 rounded-full overflow-hidden">
-                                  <div className="h-full bg-red-500 rounded-full" style={{ width: `${score}%` }} />
-                                </div>
-                                <span className="text-sm font-semibold text-red-400">{Math.round(score)}%</span>
-                              </div>
-                            </td>
-                            <td className="p-4">
-                              <span className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-bold uppercase bg-red-500/20 text-red-400 border border-red-500/30 rounded">
-                                <AlertTriangle className="w-3 h-3" /> Fraud
-                              </span>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+              </>
             )}
+          </div>
+        </div>
 
-            {highRiskVendors.length > 0 && (
-              <div className="rounded-xl border border-slate-800/60 bg-slate-900/50 mb-6 overflow-hidden">
-                <div className="flex items-center justify-between p-4 border-b border-slate-800/50">
-                  <h3 className="text-base font-semibold text-white">High-Risk Vendors</h3>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="border-b border-slate-800/50 bg-slate-800/30">
-                        <th className="text-left p-4 text-xs font-semibold text-slate-400 uppercase">Vendor</th>
-                        <th className="text-left p-4 text-xs font-semibold text-slate-400 uppercase">Transactions</th>
-                        <th className="text-left p-4 text-xs font-semibold text-slate-400 uppercase">Fraud</th>
-                        <th className="text-left p-4 text-xs font-semibold text-slate-400 uppercase">Rate</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {highRiskVendors.map((vendor, i) => (
-                        <tr key={i} className="border-b border-slate-800/30 hover:bg-slate-800/20">
-                          <td className="p-4">
-                            <span className="text-sm font-medium text-white">
-                              {vendor.name}
-                              {i < 2 && <span className="ml-2 text-red-400">⚠</span>}
-                            </span>
-                          </td>
-                          <td className="p-4 text-sm text-slate-300">{vendor.transactions.toLocaleString()}</td>
-                          <td className="p-4 text-sm text-slate-300">{vendor.fraud}</td>
-                          <td className="p-4">
-                            <span className={`px-2 py-1 text-xs font-semibold rounded ${
-                              vendor.rate > 5 ? "bg-red-500/20 text-red-400" : vendor.rate > 3 ? "bg-amber-500/20 text-amber-400" : "bg-emerald-500/20 text-emerald-400"
-                            }`}>
-                              {vendor.rate.toFixed(1)}%
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {savedFraudCases.length > 0 && (
-              <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-6 mb-6">
-                <div className="flex items-center gap-3 mb-4">
-                  <Database className="w-5 h-5 text-red-400" />
-                  <h3 className="text-lg font-semibold text-red-400">Saved Fraud Cases (Database)</h3>
-                  <span className="px-2 py-0.5 text-xs font-medium bg-red-500/20 text-red-400 border border-red-500/30 rounded-full">
-                    {savedFraudCases.length} stored
-                  </span>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="border-b border-red-500/20">
-                        <th className="text-left pb-3 text-xs font-semibold text-red-400 uppercase">Transaction ID</th>
-                        <th className="text-left pb-3 text-xs font-semibold text-red-400 uppercase">From</th>
-                        <th className="text-left pb-3 text-xs font-semibold text-red-400 uppercase">To</th>
-                        <th className="text-left pb-3 text-xs font-semibold text-red-400 uppercase">Amount</th>
-                        <th className="text-left pb-3 text-xs font-semibold text-red-400 uppercase">Fraud Score</th>
-                        <th className="text-left pb-3 text-xs font-semibold text-red-400 uppercase">Saved At</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {savedFraudCases.slice(0, 10).map((txn, i) => (
-                        <tr key={i} className="border-b border-red-500/10">
-                          <td className="py-3 text-sm font-semibold text-red-400">{txn.transaction_id}</td>
-                          <td className="py-3 text-sm text-slate-300">{txn.nameorig || "Unknown"}</td>
-                          <td className="py-3 text-sm text-slate-300">{txn.nameDest || "Unknown"}</td>
-                          <td className="py-3 text-sm text-white">${(txn.amount || 0).toLocaleString()}</td>
-                          <td className="py-3">
-                            <div className="flex items-center gap-2">
-                              <div className="w-16 h-2 bg-slate-700 rounded-full overflow-hidden">
-                                <div className="h-full bg-red-500 rounded-full" style={{ width: `${txn.fraud_score}%` }} />
-                              </div>
-                              <span className="text-sm text-red-400">{Math.round(txn.fraud_score)}%</span>
+        {recentTransactions.length > 0 && (
+          <div className="card" style={{ marginBottom: "1.5rem" }}>
+            <div className="card-header">
+              <h3 className="card-title">Recent Transactions</h3>
+              <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                {recentTransactions.length} transactions from dataset
+              </span>
+            </div>
+            <div className="table-container">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Transaction ID</th>
+                    <th>Vendor</th>
+                    <th>Amount</th>
+                    <th>Fraud Score</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recentTransactions.slice(0, 20).map((txn, i) => (
+                    <tr key={i}>
+                      <td style={{ fontWeight: 600 }}>{txn.transaction_id || txn.nameorig || 'N/A'}</td>
+                      <td>{txn.nameorig || txn.vendor_name || 'Unknown'}</td>
+                      <td>${txn.amount?.toLocaleString() || '0'}</td>
+                      <td>
+                        {txn.fraud_score !== null && txn.fraud_score !== undefined ? (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <div style={{ 
+                              width: '60px', 
+                              height: '6px', 
+                              background: 'rgba(255,255,255,0.1)', 
+                              borderRadius: '3px',
+                              overflow: 'hidden'
+                            }}>
+                              <div style={{ 
+                                width: `${txn.fraud_score}%`, 
+                                height: '100%', 
+                                background: (txn.fraud_score || 0) > 70 ? 'var(--danger)' : (txn.fraud_score || 0) > 40 ? 'var(--warning)' : 'var(--success)',
+                                borderRadius: '3px'
+                              }} />
                             </div>
-                          </td>
-                          <td className="py-3 text-xs text-slate-500">{new Date(txn.savedAt).toLocaleString()}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-          </>
-        ) : (
-          <div className="flex flex-col items-center justify-center py-20">
-            <div className="w-20 h-20 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center mb-6">
-              <Shield className="w-10 h-10 text-slate-600" />
+                            <span style={{ fontSize: '0.75rem' }}>{Math.round(txn.fraud_score)}%</span>
+                          </div>
+                        ) : (
+                          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>N/A</span>
+                        )}
+                      </td>
+                      <td>
+                        {(txn.is_fraud || ((txn.fraud_score || 0) > 70)) ? (
+                          <span className="badge badge-danger">FRAUD</span>
+                        ) : (
+                          <span className="badge badge-success">LEGITIMATE</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-            <h2 className="text-xl font-semibold text-white mb-2">No Data Available</h2>
-            <p className="text-sm text-slate-400 mb-6 text-center max-w-md">
-              Upload a dataset to see fraud detection results, risk analysis, and suspicious transactions.
-            </p>
-            <Link
-              href="/upload"
-              className="flex items-center gap-2 px-6 py-3 bg-cyan-500 text-white rounded-xl hover:bg-cyan-600 transition-colors"
-            >
-              <Upload className="w-5 h-5" />
-              <span className="font-medium">Upload Dataset</span>
-            </Link>
           </div>
         )}
 
-        <div className="mt-8 pt-6 border-t border-slate-800/50">
-          <h3 className="text-sm font-semibold text-slate-400 mb-4">Quick Actions</h3>
-          <div className="flex flex-wrap gap-3">
-            <Link
-              href="/upload"
-              className="flex items-center gap-2 px-4 py-2 bg-slate-900/50 border border-slate-800 text-slate-300 rounded-xl hover:bg-slate-800/50 transition-colors"
-            >
-              <Upload className="w-4 h-4" />
-              <span className="text-sm">Upload Dataset</span>
+        {savedFraudCases.length > 0 && (
+          <div className="card" style={{ marginBottom: "1.5rem", border: '1px solid rgba(239, 68, 68, 0.3)' }}>
+            <div className="card-header">
+              <h3 className="card-title" style={{ color: 'var(--danger)' }}>🚫 Saved Fraud Cases (Database)</h3>
+              <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                {savedFraudCases.length} high-risk transaction(s) stored
+              </span>
+            </div>
+            <div className="table-container">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Transaction ID</th>
+                    <th>From</th>
+                    <th>To</th>
+                    <th>Amount</th>
+                    <th>Fraud Score</th>
+                    <th>Saved At</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {savedFraudCases.slice(0, 20).map((txn, i) => (
+                    <tr key={i}>
+                      <td style={{ fontWeight: 600, color: 'var(--danger)' }}>{txn.transaction_id}</td>
+                      <td>{txn.nameorig || 'Unknown'}</td>
+                      <td>{txn.nameDest || 'Unknown'}</td>
+                      <td>${txn.amount?.toLocaleString() || '0'}</td>
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <div style={{ 
+                            width: '60px', 
+                            height: '6px', 
+                            background: 'rgba(255,255,255,0.1)', 
+                            borderRadius: '3px',
+                            overflow: 'hidden'
+                          }}>
+                            <div style={{ 
+                              width: `${txn.fraud_score}%`, 
+                              height: '100%', 
+                              background: 'var(--danger)',
+                              borderRadius: '3px'
+                            }} />
+                          </div>
+                          <span style={{ fontSize: '0.75rem', color: 'var(--danger)' }}>{Math.round(txn.fraud_score)}%</span>
+                        </div>
+                      </td>
+                      <td style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                        {new Date(txn.savedAt).toLocaleString()}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        <div className="grid-2" style={{ marginBottom: "1.5rem" }}>
+          <div className="card">
+            <div className="card-header">
+              <h3 className="card-title">Real-Time Risk Score</h3>
+              {hasRealData && <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>Live</span>}
+            </div>
+            {hasRealData ? (
+              <>
+                <div style={{ display: "flex", justifyContent: "center", padding: "1rem" }}>
+                  <div className="risk-gauge">
+                    <div className="gauge-bg" />
+                    <div className="gauge-cover" />
+                    <div className="gauge-value" style={{ 
+                      color: stats.riskScore > 70 ? "#ef4444" : stats.riskScore > 40 ? "#f59e0b" : "#10b981"
+                    }}>
+                      {stats.riskScore}
+                    </div>
+                  </div>
+                </div>
+                <div style={{ textAlign: "center", marginTop: "0.5rem" }}>
+                  <span className={stats.riskScore > 70 ? "badge badge-danger" : stats.riskScore > 40 ? "badge badge-warning" : "badge badge-success"}>
+                    {stats.riskScore > 70 ? "HIGH RISK" : stats.riskScore > 40 ? "MEDIUM RISK" : "LOW RISK"}
+                  </span>
+                </div>
+              </>
+            ) : (
+              <div style={{ 
+                display: "flex", 
+                flexDirection: "column",
+                alignItems: "center", 
+                justifyContent: "center", 
+                padding: "3rem 1rem" 
+              }}>
+                <div style={{ fontSize: "3rem", marginBottom: "1rem", opacity: 0.3 }}>📊</div>
+                <p style={{ color: "var(--text-muted)", textAlign: "center" }}>
+                  Upload a dataset to see your risk analysis
+                </p>
+                <Link href="/upload" className="btn btn-primary" style={{ marginTop: "1rem" }}>
+                  Upload Dataset
+                </Link>
+              </div>
+            )}
+          </div>
+
+          <div className="card">
+            <div className="card-header">
+              <h3 className="card-title">Fraud Trend</h3>
+              {hasRealData && (
+                <div style={{ display: "flex", gap: "0.5rem" }}>
+                  <span style={{ width: "12px", height: "12px", borderRadius: "50%", background: "var(--danger)" }} />
+                  <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>Fraud Count</span>
+                </div>
+              )}
+            </div>
+            {hasRealData ? (
+              <div className="chart-container">
+                <div style={{ 
+                  display: "flex", 
+                  alignItems: "flex-end", 
+                  justifyContent: "space-around", 
+                  height: "100%",
+                  padding: "1rem"
+                }}>
+                  {[65, 45, 78, 52, 90, 68, 42, 55, 73, 48, 82, 61, 38, 70].map((val, i) => (
+                    <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.5rem" }}>
+                      <div style={{ 
+                        width: "20px", 
+                        height: `${val * 2.5}px`, 
+                        background: `linear-gradient(180deg, #ef4444 0%, #f87171 100%)`,
+                        borderRadius: "4px 4px 0 0",
+                        boxShadow: "0 -4px 12px rgba(239, 68, 68, 0.3)"
+                      }} />
+                      <span style={{ fontSize: "0.625rem", color: "var(--text-muted)" }}>{i + 1}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div style={{ 
+                display: "flex", 
+                flexDirection: "column",
+                alignItems: "center", 
+                justifyContent: "center", 
+                padding: "3rem 1rem" 
+              }}>
+                <div style={{ fontSize: "3rem", marginBottom: "1rem", opacity: 0.3 }}>📈</div>
+                <p style={{ color: "var(--text-muted)", textAlign: "center" }}>
+                  Fraud trend data will appear here after processing
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="grid-2">
+          <div className="card">
+            <div className="card-header">
+              <h3 className="card-title">High-Risk Vendors</h3>
+              <Link href="/upload" className="btn btn-secondary" style={{ padding: "0.5rem 1rem", fontSize: "0.75rem" }}>
+                Upload Dataset
+              </Link>
+            </div>
+            {vendors.length > 0 ? (
+              <div className="table-container">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Vendor</th>
+                      <th>Transactions</th>
+                      <th>Fraud</th>
+                      <th>Rate</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {vendors.map((vendor, i) => (
+                      <tr key={i}>
+                        <td>
+                          <span style={{ fontWeight: i < 3 ? 600 : 400 }}>
+                            {vendor.name}
+                            {i < 3 && <span style={{ marginLeft: "0.5rem", color: "var(--danger)" }}>⚠</span>}
+                          </span>
+                        </td>
+                        <td>{vendor.transactions.toLocaleString()}</td>
+                        <td>{vendor.fraud}</td>
+                        <td>
+                          <span className={vendor.rate > 5 ? "badge badge-danger" : vendor.rate > 3 ? "badge badge-warning" : "badge badge-success"}>
+                            {vendor.rate}%
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div style={{ 
+                display: "flex", 
+                flexDirection: "column",
+                alignItems: "center", 
+                justifyContent: "center", 
+                padding: "3rem 1rem" 
+              }}>
+                <div style={{ fontSize: "3rem", marginBottom: "1rem", opacity: 0.3 }}>🏪</div>
+                <p style={{ color: "var(--text-muted)", textAlign: "center" }}>
+                  Vendor analysis will appear after uploading a dataset
+                </p>
+              </div>
+            )}
+          </div>
+
+          <div className="card">
+            <div className="card-header">
+              <h3 className="card-title">Security Alerts</h3>
+              {alerts.length > 0 && <span className="badge badge-danger">{alerts.length} new</span>}
+            </div>
+            {alerts.length > 0 ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+                {alerts.map((alert, i) => (
+                  <div key={i} style={{ 
+                    padding: "1rem", 
+                    background: "rgba(0, 0, 0, 0.2)", 
+                    borderRadius: "8px",
+                    borderLeft: `3px solid ${alert.severity === "high" ? "#ef4444" : alert.severity === "medium" ? "#f59e0b" : "#3b82f6"}`,
+                    transition: "all 0.2s ease"
+                  }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem" }}>
+                      <span className={alert.severity === "high" ? "badge badge-danger" : alert.severity === "medium" ? "badge badge-warning" : "badge badge-info"}>
+                        {alert.severity.toUpperCase()}
+                      </span>
+                      <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>{alert.time}</span>
+                    </div>
+                    <p style={{ fontSize: "0.875rem", color: "var(--text-secondary)" }}>{alert.message}</p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{ 
+                display: "flex", 
+                flexDirection: "column",
+                alignItems: "center", 
+                justifyContent: "center", 
+                padding: "3rem 1rem" 
+              }}>
+                <div style={{ fontSize: "3rem", marginBottom: "1rem", opacity: 0.3 }}>🔔</div>
+                <p style={{ color: "var(--text-muted)", textAlign: "center" }}>
+                  Security alerts will appear here after processing
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div style={{ marginTop: "1.5rem" }}>
+          <h3 style={{ marginBottom: "1rem", color: "var(--text-secondary)" }}>Quick Actions</h3>
+          <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
+            <Link href="/upload" className="btn btn-primary">
+              ⇪ Upload Dataset
             </Link>
-            <Link
-              href="/explain"
-              className="flex items-center gap-2 px-4 py-2 bg-slate-900/50 border border-slate-800 text-slate-300 rounded-xl hover:bg-slate-800/50 transition-colors"
-            >
-              <BrainCircuit className="w-4 h-4" />
-              <span className="text-sm">Explain Transaction</span>
+            <Link href="/explain" className="btn btn-secondary">
+              ⟁ Explain Transaction
             </Link>
-            <Link
-              href="/api-test"
-              className="flex items-center gap-2 px-4 py-2 bg-slate-900/50 border border-slate-800 text-slate-300 rounded-xl hover:bg-slate-800/50 transition-colors"
-            >
-              <Zap className="w-4 h-4" />
-              <span className="text-sm">Test API</span>
+            <Link href="/api-test" className="btn btn-secondary">
+              ⚡ Test API
             </Link>
           </div>
         </div>

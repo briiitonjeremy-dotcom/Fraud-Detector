@@ -1,622 +1,845 @@
 "use client";
 
-/* eslint-disable react-hooks/set-state-in-effect */
 import { useState, useEffect } from "react";
-import Sidebar from "@/components/dashboard/Sidebar";
-import Header from "@/components/dashboard/Header";
-import AlertBanner from "@/components/dashboard/AlertBanner";
-import KPIGrid from "@/components/dashboard/KPIGrid";
-import FraudTrendChart from "@/components/dashboard/FraudTrendChart";
-import ChannelDistribution from "@/components/dashboard/ChannelDistribution";
-import RiskGauge from "@/components/dashboard/RiskGauge";
-import SecurityAlertsPanel from "@/components/dashboard/SecurityAlerts";
-import ActivityFeed from "@/components/dashboard/ActivityFeed";
-import SuspiciousTransactionsTable from "@/components/dashboard/SuspiciousTransactionsTable";
-import HighRiskRecipients from "@/components/dashboard/HighRiskRecipients";
-import GeographicRisk from "@/components/dashboard/GeographicRisk";
-import FraudPatternInsights from "@/components/dashboard/FraudPatternInsights";
-import { Trash2, Save, Upload, FileText, AlertCircle } from "lucide-react";
 import Link from "next/link";
+import { isAdmin, isLoggedIn, logout, getUser, getUserRole } from "@/lib/api";
 
+// ML Service URL - from Render
 const ML_SERVICE_URL = "https://ml-file-for-url.onrender.com";
 
-interface ProcessedTransaction {
-  transaction_id?: string;
-  nameorig?: string;
-  nameDest?: string;
-  amount?: number;
-  fraud_score?: number | null;
-  is_fraud?: boolean;
-  step?: number;
-  type?: string;
-  oldbalanceOrg?: number;
-  newbalanceOrig?: number;
-  oldbalanceDest?: number;
-  newbalanceDest?: number;
-  [key: string]: unknown;
-}
+// Navigation items
+const navItems = [
+  { href: "/", icon: "⬡", label: "Dashboard", active: true },
+  { href: "/upload", icon: "⇪", label: "Upload Dataset", active: false },
+  { href: "/explain", icon: "⟁", label: "Explain", active: false },
+  { href: "/api-test", icon: "⚡", label: "API Test", active: false },
+  { href: "/admin", icon: "⚙", label: "Admin", active: false },
+  { href: "/login", icon: "🔐", label: "Login", active: false },
+];
 
-interface ProcessedResults {
-  total_transactions?: number;
-  fraud_detected?: number;
-  fraud_rate?: number;
-  processedAt?: string;
-}
-
-interface Alert {
-  id: string;
-  time: string;
-  severity: "critical" | "warning" | "info";
-  title: string;
-  message: string;
-  source: string;
-  percentage?: number;
-}
-
-interface ActivityItem {
-  id: string;
-  time: string;
-  action: string;
-  source: string;
-  status: "success" | "warning" | "error" | "info";
-  details?: string;
-}
-
-interface ChannelData {
-  name: string;
-  icon: "mpesa" | "bank" | "card" | "wallet" | "transfer";
-  transactions: number;
-  fraud: number;
-  percentage: number;
-}
-
-interface GeoRiskData {
-  region: string;
-  transactions: number;
-  fraud: number;
-  riskPercentage: number;
-  riskLevel: "critical" | "high" | "medium" | "low";
-}
+// Demo data for when ML service is unavailable
+const defaultStats = {
+  totalTransactions: 0,
+  fraudDetected: 0,
+  fraudRate: 0,
+  riskScore: 0,
+};
 
 export default function Dashboard() {
   const [mlStatus, setMlStatus] = useState<"loading" | "online" | "offline">("loading");
+  const [lastUpdate, setLastUpdate] = useState<string>("");
+  const [hasRealData, setHasRealData] = useState(false);
+  const [processedAt, setProcessedAt] = useState<string>("");
+  const [stats, setStats] = useState(defaultStats);
+  const [vendors, setVendors] = useState<{name: string, transactions: number, fraud: number, rate: number}[]>([]);
+  const [alerts, setAlerts] = useState<{time: string, severity: string, message: string}[]>([]);
+  const [recentTransaction, setRecentTransaction] = useState<{id: string, score: number, isFraud: boolean, amount?: number, vendor?: string} | null>(null);
+  const [recentTransactions, setRecentTransactions] = useState<{transaction_id: string, amount: number, vendor_name?: string, fraud_score?: number | null, is_fraud?: boolean, nameorig?: string, nameDest?: string}[]>([]);
+  const [savedFraudCases, setSavedFraudCases] = useState<{transaction_id: string, amount: number, fraud_score: number, savedAt: string, nameorig?: string, nameDest?: string}[]>([]);
+  const [saveStatus, setSaveStatus] = useState<{saving: boolean, message: string}>({saving: false, message: ""});
   const [userRole, setUserRole] = useState<string | null>(() => {
     if (typeof window === 'undefined') return null;
-    return localStorage.getItem("userRole") || null;
+    return isAdmin() ? "admin" : (localStorage.getItem("userRole") || null);
   });
   const [loggedIn, setLoggedIn] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
     return !!localStorage.getItem("session_token");
   });
 
-  // Processed data state
-  const [hasProcessedData, setHasProcessedData] = useState(false);
-  const [processedResults, setProcessedResults] = useState<ProcessedResults | null>(null);
-  const [transactions, setTransactions] = useState<ProcessedTransaction[]>([]);
-  const [savingStatus, setSavingStatus] = useState<{ saving: boolean; message: string }>({ saving: false, message: "" });
-  const [clearingStatus, setClearingStatus] = useState<{ clearing: boolean; message: string }>({ clearing: false, message: "" });
+  // Dynamic navigation items - Admin always visible
+  const navItems = [
+    { href: "/", icon: "⬡", label: "Dashboard", active: true },
+    { href: "/upload", icon: "⇪", label: "Upload Dataset", active: false },
+    { href: "/explain", icon: "⟁", label: "Explain", active: false },
+    { href: "/api-test", icon: "⚡", label: "API Test", active: false },
+    { href: "/admin", icon: "⚙", label: "Admin", active: false },
+    // Show Login or Logout based on auth status
+    loggedIn 
+      ? { href: "#", icon: "🚪", label: "Logout", active: false, onClick: () => { logout(); window.location.href = "/"; } }
+      : { href: "/login", icon: "🔐", label: "Login", active: false },
+  ];
 
-  // Load processed data from localStorage on mount
-  useEffect(() => {
-    let hasData = false;
-    try {
-      // Load results summary
-      const storedResults = localStorage.getItem('fraudguard_results');
-      if (storedResults) {
-        const parsed = JSON.parse(storedResults);
-        setProcessedResults(parsed);
-        hasData = true;
-      }
-
-      // Load transactions
-      const storedTransactions = localStorage.getItem('fraudguard_transactions');
-      if (storedTransactions) {
-        const txns = JSON.parse(storedTransactions);
-        setTransactions(txns);
-        hasData = txns.length > 0 || hasData;
-      }
-    } catch (e) {
-      console.error("[Dashboard] Error loading processed data:", e);
+  // Handle clearing all data
+  const handleClearData = () => {
+    if (confirm("Are you sure you want to clear all stored data? This will remove all processed datasets and transaction history.")) {
+      localStorage.removeItem('fraudguard_results');
+      localStorage.removeItem('fraudguard_transactions');
+      localStorage.removeItem('fraudguard_fraud_cases');
+      setStats(defaultStats);
+      setVendors([]);
+      setAlerts([]);
+      setHasRealData(false);
+      setProcessedAt("");
+      setRecentTransaction(null);
+      setRecentTransactions([]);
+      setSavedFraudCases([]);
     }
-    setHasProcessedData(hasData);
-  }, []);
+  };
 
-  // Check ML service health
-  useEffect(() => {
-    const checkMlServiceHealth = async () => {
-      try {
-        let response = await fetch(`${ML_SERVICE_URL}/health`, {
-          method: "GET",
-          headers: { "Content-Type": "application/json" },
-        });
-        
-        if (!response.ok) {
-          response = await fetch(`${ML_SERVICE_URL}/`, {
-            method: "GET",
-            headers: { "Content-Type": "application/json" },
-          });
-        }
-        
-        return response.ok;
-      } catch (error) {
-        console.error("[Dashboard] ML service health check failed:", error);
-        return false;
-      }
-    };
-
-    const fetchData = async () => {
-      const isMlOnline = await checkMlServiceHealth();
-      setMlStatus(isMlOnline ? "online" : "offline");
-    };
-    
-    fetchData();
-    const interval = setInterval(fetchData, 30000);
-    return () => clearInterval(interval);
-  }, []);
-
-  // Save suspicious transactions (fraud_score >= 50%)
-  const handleSaveSuspicious = async () => {
-    if (transactions.length === 0) {
-      setSavingStatus({ saving: false, message: "No transactions to save" });
+  // Save high-risk transactions (fraud probability > 50%) to database
+  const handleSaveToDatabase = async () => {
+    if (recentTransactions.length === 0) {
+      setSaveStatus({saving: false, message: "No transactions to save"});
       return;
     }
-
-    setSavingStatus({ saving: true, message: "" });
-
+    
+    setSaveStatus({saving: true, message: ""});
+    
     try {
-      const suspiciousTxns = transactions.filter(txn => 
-        (txn.fraud_score !== null && txn.fraud_score !== undefined && txn.fraud_score >= 50) || 
+      // Filter transactions with fraud probability > 50%
+      const highRiskTransactions = recentTransactions.filter(txn => 
+        (txn.fraud_score !== null && txn.fraud_score !== undefined && txn.fraud_score > 50) || 
         txn.is_fraud === true
       );
-
-      if (suspiciousTxns.length === 0) {
-        setSavingStatus({ saving: false, message: "No suspicious transactions (fraud score >= 50%) found" });
+      
+      if (highRiskTransactions.length === 0) {
+        setSaveStatus({saving: false, message: "No high-risk transactions (>50% fraud probability) found"});
         return;
       }
-
+      
       // Get existing saved cases
       const existingCases = localStorage.getItem('fraudguard_fraud_cases');
       const existingCasesArray = existingCases ? JSON.parse(existingCases) : [];
-
+      
       // Create new fraud cases with timestamp
-      const newFraudCases = suspiciousTxns.map(txn => ({
-        transaction_id: txn.transaction_id || txn.nameorig || `TXN_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      const newFraudCases = highRiskTransactions.map(txn => ({
+        transaction_id: txn.transaction_id || txn.nameorig || `TXN_${Date.now()}`,
         amount: txn.amount || 0,
         fraud_score: txn.fraud_score || (txn.is_fraud ? 95 : 0),
         savedAt: new Date().toISOString(),
         nameorig: txn.nameorig,
-        nameDest: txn.nameDest,
-        type: txn.type,
+        nameDest: txn.nameDest
       }));
-
+      
       // Merge with existing cases (avoid duplicates)
-      const existingIds = new Set(existingCasesArray.map((c: { transaction_id: string }) => c.transaction_id));
-      const uniqueNewCases = newFraudCases.filter((c: { transaction_id: string }) => !existingIds.has(c.transaction_id));
+      const existingIds = new Set(existingCasesArray.map((c: any) => c.transaction_id));
+      const uniqueNewCases = newFraudCases.filter((c: any) => !existingIds.has(c.transaction_id));
       const allCases = [...existingCasesArray, ...uniqueNewCases];
-
-      // Save to localStorage
+      
+      // Save to localStorage (acts as our database)
       localStorage.setItem('fraudguard_fraud_cases', JSON.stringify(allCases));
+      setSavedFraudCases(allCases);
       
-      setSavingStatus({ saving: false, message: `Successfully saved ${uniqueNewCases.length} suspicious transaction(s)!` });
+      setSaveStatus({saving: false, message: `Successfully saved ${uniqueNewCases.length} high-risk transaction(s) to database!`});
     } catch (error) {
-      setSavingStatus({ saving: false, message: "Error saving transactions" });
+      setSaveStatus({saving: false, message: "Error saving transactions to database"});
     }
   };
 
-  // Clear displayed data
-  const handleClearData = async () => {
-    setClearingStatus({ clearing: true, message: "" });
-
+  // Check ML service health status
+  const checkMlServiceHealth = async () => {
     try {
-      localStorage.removeItem('fraudguard_results');
-      localStorage.removeItem('fraudguard_transactions');
-      
-      setProcessedResults(null);
-      setTransactions([]);
-      setHasProcessedData(false);
-      setClearingStatus({ clearing: false, message: "Displayed data cleared successfully" });
-      
-      // Clear message after 3 seconds
-      setTimeout(() => setClearingStatus({ clearing: false, message: "" }), 3000);
-    } catch (error) {
-      setClearingStatus({ clearing: false, message: "Error clearing data" });
-    }
-  };
-
-  // Derive analytics from processed transactions
-  const getKPIData = () => {
-    if (!hasProcessedData || transactions.length === 0) {
-      return null;
-    }
-
-    const totalTransactions = transactions.length;
-    const fraudDetected = transactions.filter(t => t.is_fraud === true || (t.fraud_score !== null && t.fraud_score !== undefined && t.fraud_score >= 50)).length;
-    const fraudRate = totalTransactions > 0 ? ((fraudDetected / totalTransactions) * 100) : 0;
-    
-    // Count by transaction type (mapped to channels)
-    const mpesaCount = transactions.filter(t => t.type?.includes('TRANSFER') || t.type?.includes('CASH')).length;
-    const bankCount = transactions.filter(t => t.type?.includes('PAYMENT') || t.type?.includes('DEBIT')).length;
-    const billCount = transactions.filter(t => t.type === 'PAYMENT').length;
-    const otherCount = totalTransactions - mpesaCount - bankCount - billCount;
-
-    // Calculate risk score (average fraud score * 10, capped at 100)
-    const avgFraudScore = transactions.reduce((sum, t) => sum + (t.fraud_score || 0), 0) / totalTransactions;
-    const riskScore = Math.min(100, Math.round(avgFraudScore * 10));
-
-    return {
-      totalTransactions,
-      incomingTransfers: Math.round(totalTransactions * 0.58),
-      outgoingTransfers: Math.round(totalTransactions * 0.36),
-      billPayments: billCount || Math.round(totalTransactions * 0.06),
-      fraudFlags: fraudDetected,
-      highRiskRecipients: Math.round(fraudDetected * 0.5),
-      fraudRate: fraudRate.toFixed(2),
-      riskScore,
-      mpesaCount,
-      bankCount,
-      otherCount,
-    };
-  };
-
-  // Get suspicious transactions (fraud_score >= 50%)
-  const getSuspiciousTransactions = () => {
-    if (!hasProcessedData || transactions.length === 0) {
-      return [];
-    }
-
-    return transactions
-      .filter(t => t.fraud_score !== null && t.fraud_score !== undefined && t.fraud_score >= 50)
-      .map(t => ({
-        refCode: t.transaction_id || t.nameorig || `TXN_${Date.now()}`,
-        channel: t.type?.includes('TRANSFER') || t.type?.includes('CASH') ? 'M-PESA' : t.type?.includes('PAYMENT') ? 'Bank' : 'Other',
-        type: t.type || 'Transfer',
-        sender: t.nameorig || 'Unknown',
-        recipient: t.nameDest || 'Unknown',
-        phone: 'N/A',
-        amount: t.amount || 0,
-        fee: 0,
-        dateTime: new Date().toISOString(),
-        riskScore: Math.round(t.fraud_score || 0),
-        alertReason: t.fraud_score && t.fraud_score >= 80 ? 'High fraud probability' : 'Suspicious activity detected',
-      }))
-      .slice(0, 50);
-  };
-
-  // Generate alerts from processed data
-  const getAlerts = (): Alert[] => {
-    if (!hasProcessedData || transactions.length === 0) {
-      return [];
-    }
-
-    const alerts: Alert[] = [];
-    const highRiskCount = transactions.filter(t => t.fraud_score && t.fraud_score >= 80).length;
-    const mediumRiskCount = transactions.filter(t => t.fraud_score && t.fraud_score >= 50 && t.fraud_score < 80).length;
-
-    if (highRiskCount > 0) {
-      alerts.push({
-        id: "1",
-        time: "Just now",
-        severity: "critical",
-        title: "High Risk Transactions Detected",
-        message: `${highRiskCount} transaction(s) with fraud score >= 80% detected in processed dataset`,
-        source: "ML Model",
-        percentage: Math.round((highRiskCount / transactions.length) * 100),
+      // Try /health endpoint first (more reliable)
+      let response = await fetch(`${ML_SERVICE_URL}/health`, {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
       });
-    }
-
-    if (mediumRiskCount > 0) {
-      alerts.push({
-        id: "2",
-        time: "5 min ago",
-        severity: "warning",
-        title: "Medium Risk Transactions",
-        message: `${mediumRiskCount} transaction(s) with fraud score between 50-80% require review`,
-        source: "Fraud Rules",
-        percentage: Math.round((mediumRiskCount / transactions.length) * 100),
-      });
-    }
-
-    // Add summary alert
-    const fraudRate = ((transactions.filter(t => t.is_fraud || (t.fraud_score && t.fraud_score >= 50)).length / transactions.length) * 100).toFixed(2);
-    alerts.push({
-      id: "3",
-      time: "Analysis complete",
-      severity: "info",
-      title: "Dataset Processing Complete",
-      message: `Analyzed ${transactions.length} transactions. Fraud rate: ${fraudRate}%`,
-      source: "System",
-      percentage: parseFloat(fraudRate),
-    });
-
-    return alerts;
-  };
-
-  // Generate activity from processed data
-  const getActivity = (): ActivityItem[] => {
-    if (!hasProcessedData || transactions.length === 0) {
-      return [];
-    }
-
-    const activities: ActivityItem[] = [];
-    const fraudCount = transactions.filter(t => t.is_fraud || (t.fraud_score && t.fraud_score >= 50)).length;
-    const processedAt = processedResults?.processedAt || new Date().toISOString();
-
-    activities.push({
-      id: "1",
-      time: "Just now",
-      action: "Dataset Processed",
-      source: "Data Pipeline",
-      status: "success",
-      details: `${transactions.length.toLocaleString()} transactions analyzed`,
-    });
-
-    activities.push({
-      id: "2",
-      time: "Analysis",
-      action: "Fraud Detected",
-      source: "ML Engine",
-      status: fraudCount > 0 ? "warning" : "success",
-      details: `${fraudCount} suspicious transaction(s) identified`,
-    });
-
-    activities.push({
-      id: "3",
-      time: "Processing",
-      action: "Risk Analysis",
-      source: "ML Model",
-      status: "info",
-      details: `Average fraud score: ${(transactions.reduce((s, t) => s + (t.fraud_score || 0), 0) / transactions.length).toFixed(1)}%`,
-    });
-
-    return activities;
-  };
-
-  // Generate channel data from processed transactions
-  const getChannelData = (): ChannelData[] => {
-    if (!hasProcessedData || transactions.length === 0) {
-      return [];
-    }
-
-    const channelMap = new Map<string, { total: number; fraud: number }>();
-    
-    transactions.forEach(t => {
-      const channel = t.type || 'Other';
-      const existing = channelMap.get(channel) || { total: 0, fraud: 0 };
-      existing.total++;
-      if (t.fraud_score && t.fraud_score >= 50) {
-        existing.fraud++;
+      
+      // If /health fails, try root endpoint
+      if (!response.ok) {
+        response = await fetch(`${ML_SERVICE_URL}/`, {
+          method: "GET",
+          headers: { "Content-Type": "application/json" },
+        });
       }
-      channelMap.set(channel, existing);
-    });
-
-    return Array.from(channelMap.entries()).map(([name, data]) => ({
-      name,
-      icon: 'transfer',
-      transactions: data.total,
-      fraud: data.fraud,
-      percentage: data.total > 0 ? ((data.fraud / data.total) * 100) : 0,
-    }));
-  };
-
-  // Generate geo risk data (simulated from transactions)
-  const getGeoRiskData = (): GeoRiskData[] => {
-    if (!hasProcessedData || transactions.length === 0) {
-      return [];
-    }
-
-    // Group by a pseudo-region based on transaction characteristics
-    // In real app, this would come from transaction location data
-    const regions = [
-      { region: "Nairobi", factor: 0.4 },
-      { region: "Mombasa", factor: 0.25 },
-      { region: "Kisumu", factor: 0.15 },
-      { region: "Nakuru", factor: 0.1 },
-      { region: "Other", factor: 0.1 },
-    ];
-
-    return regions.map(r => {
-      const regionTxns = Math.round(transactions.length * r.factor);
-      const regionFraud = Math.round(regionTxns * (Math.random() * 0.03 + 0.005));
-      const riskPct = regionTxns > 0 ? ((regionFraud / regionTxns) * 100) : 0;
       
-      let riskLevel: "critical" | "high" | "medium" | "low" = "low";
-      if (riskPct > 2) riskLevel = "critical";
-      else if (riskPct > 1) riskLevel = "high";
-      else if (riskPct > 0.5) riskLevel = "medium";
-
-      return {
-        region: r.region,
-        transactions: regionTxns,
-        fraud: regionFraud,
-        riskPercentage: parseFloat(riskPct.toFixed(2)),
-        riskLevel,
-      };
-    });
+      return response.ok;
+    } catch (error) {
+      console.error("[Dashboard] ML service health check failed:", error);
+      return false;
+    }
   };
 
-  const kpiData = getKPIData();
-  const suspiciousTxns = getSuspiciousTransactions();
-  const alerts = getAlerts();
-  const activity = getActivity();
-  const channelData = getChannelData();
-  const geoRiskData = getGeoRiskData();
+  useEffect(() => {
+    let mounted = true;
+    
+    const fetchData = async () => {
+      // First, check localStorage for processed data
+      try {
+        const storedData = localStorage.getItem('fraudguard_results');
+        if (storedData && mounted) {
+          const parsed = JSON.parse(storedData);
+          setStats({
+            totalTransactions: parsed.total_transactions || 0,
+            fraudDetected: parsed.fraud_detected || 0,
+            fraudRate: parsed.fraud_rate || 0,
+            riskScore: Math.round((parsed.fraud_rate || 0) * 10),
+          });
+          setProcessedAt(parsed.processedAt || "");
+          setHasRealData(true);
+          setLastUpdate(new Date().toLocaleTimeString());
+        }
+        
+        // Also check for stored transactions (from Upload page)
+        const storedTransactions = localStorage.getItem('fraudguard_transactions');
+        if (storedTransactions && mounted) {
+          const txns = JSON.parse(storedTransactions);
+          if (txns.length > 0) {
+            // Get the most recent transaction (first one is most recent)
+            const latestTxn = txns[0];
+            setRecentTransaction({
+              id: latestTxn.transaction_id || latestTxn.nameorig || latestTxn.nameOrig || 'Unknown',
+              score: latestTxn.fraud_score !== null && latestTxn.fraud_score !== undefined 
+                ? latestTxn.fraud_score 
+                : (latestTxn.is_fraud ? 95 : 0),
+              isFraud: latestTxn.is_fraud || false,
+              amount: latestTxn.amount,
+              vendor: latestTxn.nameorig || latestTxn.nameOrig || latestTxn.vendor_name
+            });
+            // Store all recent transactions for display (up to 50)
+            setRecentTransactions(txns.slice(0, 50));
+            setHasRealData(true);
+          }
+        }
+        
+        // Load saved fraud cases from database
+        const savedFraudCasesData = localStorage.getItem('fraudguard_fraud_cases');
+        if (savedFraudCasesData && mounted) {
+          const cases = JSON.parse(savedFraudCasesData);
+          setSavedFraudCases(cases);
+        }
+      } catch (e) {
+        console.error("[Dashboard] Error reading localStorage:", e);
+      }
+      
+      // Then check ML service health
+      const isMlOnline = await checkMlServiceHealth();
+      if (mounted) {
+        setMlStatus(isMlOnline ? "online" : "offline");
+      }
+    };
+    
+    fetchData();
+    const interval = setInterval(fetchData, 30000);
+    return () => { mounted = false; clearInterval(interval); };
+  }, []);
 
   return (
-    <div className="min-h-screen bg-slate-950 overflow-x-hidden">
+    <div className="app-container">
       {/* Sidebar */}
-      <Sidebar userRole={userRole} loggedIn={loggedIn} />
+      <aside className="sidebar">
+        <div className="sidebar-logo">
+          <div className="sidebar-logo-icon">🛡</div>
+          <h1>FraudGuard</h1>
+        </div>
+        
+        <nav className="sidebar-nav">
+          {navItems.map((item) => (
+            item.onClick ? (
+              <button
+                key={item.label}
+                onClick={item.onClick}
+                className={`nav-item ${item.active ? "active" : ""}`}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', width: '100%', textAlign: 'left' }}
+              >
+                <span className="nav-icon">{item.icon}</span>
+                <span>{item.label}</span>
+              </button>
+            ) : (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`nav-item ${item.active ? "active" : ""}`}
+              >
+                <span className="nav-icon">{item.icon}</span>
+                <span>{item.label}</span>
+              </Link>
+            )
+          ))}
+        </nav>
+
+        {/* Sidebar Footer */}
+        <div style={{ marginTop: "auto", paddingTop: "2rem" }}>
+          {/* User Role Display */}
+          {loggedIn && (
+            <div style={{ 
+              padding: "1rem", 
+              marginBottom: "1rem",
+              background: userRole === "admin" ? "rgba(168, 85, 247, 0.1)" : userRole === "analyst" ? "rgba(59, 130, 246, 0.1)" : "rgba(34, 197, 94, 0.1)", 
+              borderRadius: "12px", 
+              border: `1px solid ${userRole === "admin" ? "rgba(168, 85, 247, 0.3)" : userRole === "analyst" ? "rgba(59, 130, 246, 0.3)" : "rgba(34, 197, 94, 0.3)"}`
+            }}>
+              <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.5rem" }}>LOGGED IN AS</div>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.25rem" }}>
+                <span style={{ 
+                  fontSize: "0.875rem", 
+                  fontWeight: "bold",
+                  color: userRole === "admin" ? "#a855f7" : userRole === "analyst" ? "#3b82f6" : "#22c55e",
+                  textTransform: "capitalize"
+                }}>
+                  {userRole}
+                </span>
+                <span style={{ 
+                  fontSize: "0.625rem", 
+                  padding: "2px 6px", 
+                  borderRadius: "4px", 
+                  background: localStorage.getItem("isActive") !== "false" ? "rgba(34, 197, 94, 0.2)" : "rgba(239, 68, 68, 0.2)",
+                  color: localStorage.getItem("isActive") !== "false" ? "#22c55e" : "#ef4444"
+                }}>
+                  {localStorage.getItem("isActive") !== "false" ? "ACTIVE" : "INACTIVE"}
+                </span>
+              </div>
+              <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)", wordBreak: "break-all" }}>
+                {localStorage.getItem("user") ? JSON.parse(localStorage.getItem("user") || "{}").email : ""}
+              </div>
+            </div>
+          )}
+          <div style={{ 
+            padding: "1rem", 
+            background: "rgba(59, 130, 246, 0.1)", 
+            borderRadius: "12px", 
+            border: "1px solid rgba(59, 130, 246, 0.2)"
+          }}>
+            <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: "0.5rem" }}>ML BACKEND</div>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              <span style={{ 
+                width: "8px", 
+                height: "8px", 
+                borderRadius: "50%", 
+                background: mlStatus === "online" ? "var(--success)" : mlStatus === "loading" ? "var(--warning)" : "var(--danger)",
+                boxShadow: mlStatus === "online" ? "0 0 8px var(--success)" : "none"
+              }} />
+              <span style={{ fontSize: "0.875rem", color: "var(--text-secondary)" }}>
+                {mlStatus === "online" ? "Connected" : mlStatus === "loading" ? "Connecting..." : "Disconnected"}
+              </span>
+            </div>
+          </div>
+        </div>
+      </aside>
 
       {/* Main Content */}
-      <div className="ml-64 min-h-screen">
+      <main className="main-content">
         {/* Header */}
-        <div className="px-6 pt-6">
-          <Header mlStatus={mlStatus} hasData={hasProcessedData} />
+        <div className="page-header">
+          {/* Offline Warning Banner */}
+          {mlStatus === "offline" && (
+            <div style={{ 
+              marginBottom: '1rem', 
+              padding: '1rem', 
+              background: 'rgba(239, 68, 68, 0.15)', 
+              border: '1px solid rgba(239, 68, 68, 0.3)', 
+              borderRadius: '12px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.75rem'
+            }}>
+              <span style={{ fontSize: '1.5rem' }}>⚠️</span>
+              <div>
+                <div style={{ fontWeight: 600, color: 'var(--danger)' }}>ML Processing Offline</div>
+                <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+                  Fraud detection is unavailable. Please ensure the ML service is running at {ML_SERVICE_URL}
+                </div>
+              </div>
+            </div>
+          )}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+            <div>
+              <h1 className="page-title">Fraud Detection Dashboard</h1>
+              <p className="page-subtitle">Real-time monitoring and analytics for financial transactions</p>
+            </div>
+            <div style={{ 
+              display: "flex", 
+              alignItems: "center", 
+              gap: "0.75rem",
+              padding: "0.5rem 1rem",
+              background: "rgba(39, 39, 42, 0.6)",
+              backdropFilter: "blur(10px)",
+              borderRadius: "12px",
+              border: "1px solid rgba(63, 63, 70, 0.5)"
+            }}>
+              <span style={{ fontSize: "1.25rem" }}>◷</span>
+              <span style={{ fontSize: "0.875rem", color: "var(--text-secondary)" }}>
+                {new Date().toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+              </span>
+            </div>
+            {hasRealData && mlStatus === "online" && (
+              <div style={{ display: 'flex', gap: '0.75rem' }}>
+                <button 
+                  onClick={handleSaveToDatabase}
+                  className="btn btn-primary"
+                  style={{ padding: "0.5rem 1rem", fontSize: "0.875rem" }}
+                  disabled={saveStatus.saving}
+                  title="Save high-risk transactions (>50% fraud probability) to database"
+                >
+                  {saveStatus.saving ? '⏳ Saving...' : '💾 Save to Database'}
+                </button>
+                <button 
+                  onClick={handleClearData}
+                  className="btn btn-secondary"
+                  style={{ padding: "0.5rem 1rem", fontSize: "0.875rem" }}
+                  title="Clear all stored data"
+                >
+                  🗑 Clear Data
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+        
+        {/* Save Status Message */}
+        {saveStatus.message && (
+          <div style={{ 
+            marginTop: '1rem', 
+            padding: '0.75rem 1rem', 
+            background: saveStatus.message.includes('Successfully') ? 'rgba(16, 185, 129, 0.1)' : 'rgba(245, 158, 11, 0.1)',
+            border: `1px solid ${saveStatus.message.includes('Successfully') ? 'rgba(16, 185, 129, 0.3)' : 'rgba(245, 158, 11, 0.3)'}`,
+            borderRadius: '8px',
+            color: saveStatus.message.includes('Successfully') ? 'var(--success)' : 'var(--warning)',
+            fontSize: '0.875rem'
+          }}>
+            {saveStatus.message}
+          </div>
+        )}
+
+        {/* Stats Grid */}
+        <div className="stats-grid">
+          {/* Recent Transaction Card */}
+          {recentTransaction && (
+            <div className="stat-card" style={{ gridColumn: "span 2" }}>
+              <div className="stat-icon blue">⟁</div>
+              <div className="stat-label">Latest Analyzed Transaction</div>
+              <div style={{ display: "flex", alignItems: "center", gap: "1rem", marginTop: "0.5rem" }}>
+                <div>
+                  <div style={{ fontSize: "1.25rem", fontWeight: 600, color: "var(--text-primary)" }}>
+                    {recentTransaction.id}
+                  </div>
+                  <div style={{ fontSize: "0.875rem", color: "var(--text-muted)" }}>
+                    {recentTransaction.vendor || "Unknown Vendor"} • ${recentTransaction.amount?.toLocaleString() || "—"}
+                  </div>
+                </div>
+                <div style={{ marginLeft: "auto", textAlign: "right" }}>
+                  <div style={{ fontSize: "1.5rem", fontWeight: 700, 
+                    color: recentTransaction.isFraud ? "var(--danger)" : "var(--success)" 
+                  }}>
+                    {Math.round(recentTransaction.score * 100)}%
+                  </div>
+                  <span className={recentTransaction.isFraud ? "badge badge-danger" : "badge badge-success"}>
+                    {recentTransaction.isFraud ? "FRAUD" : "LEGITIMATE"}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+          
+          <div className="stat-card">
+            <div className="stat-icon blue">⬡</div>
+            <div className="stat-label">Total Transactions</div>
+            {hasRealData ? (
+              <>
+                <div className="stat-value">{stats.totalTransactions.toLocaleString()}</div>
+                <div className="stat-change positive" style={{ marginTop: "0.75rem", fontSize: "0.75rem", color: "var(--success-light)" }}>
+                  ▲ Processed from dataset
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="stat-value" style={{ opacity: 0.5 }}>—</div>
+                <div style={{ marginTop: "0.75rem", fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                  Upload a dataset to see results
+                </div>
+              </>
+            )}
+          </div>
+          
+          <div className="stat-card">
+            <div className="stat-icon red">⚠</div>
+            <div className="stat-label">Fraud Detected</div>
+            {hasRealData ? (
+              <>
+                <div className="stat-value">{stats.fraudDetected.toLocaleString()}</div>
+                <div className="stat-change negative" style={{ marginTop: "0.75rem", fontSize: "0.75rem", color: "var(--danger-light)" }}>
+                  Flagged transactions
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="stat-value" style={{ opacity: 0.5 }}>—</div>
+                <div style={{ marginTop: "0.75rem", fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                  No fraud detected yet
+                </div>
+              </>
+            )}
+          </div>
+          
+          <div className="stat-card">
+            <div className="stat-icon gold">◧</div>
+            <div className="stat-label">Fraud Rate</div>
+            {hasRealData ? (
+              <>
+                <div className="stat-value">{stats.fraudRate.toFixed(2)}%</div>
+                <div className="stat-change negative" style={{ marginTop: "0.75rem", fontSize: "0.75rem", color: "var(--warning-light)" }}>
+                  Based on processed data
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="stat-value" style={{ opacity: 0.5 }}>—</div>
+                <div style={{ marginTop: "0.75rem", fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                  Awaiting dataset
+                </div>
+              </>
+            )}
+          </div>
+          
+          <div className="stat-card">
+            <div className="stat-icon green">◎</div>
+            <div className="stat-label">Risk Score</div>
+            {hasRealData ? (
+              <>
+                <div className="stat-value">{stats.riskScore}</div>
+                <div style={{ marginTop: "0.75rem" }}>
+                  <span className={stats.riskScore > 70 ? "badge badge-danger" : stats.riskScore > 40 ? "badge badge-warning" : "badge badge-success"}>
+                    {stats.riskScore > 70 ? "HIGH RISK" : stats.riskScore > 40 ? "MEDIUM RISK" : "LOW RISK"}
+                  </span>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="stat-value" style={{ opacity: 0.5 }}>—</div>
+                <div style={{ marginTop: "0.75rem" }}>
+                  <span className="badge badge-info">NO DATA</span>
+                </div>
+              </>
+            )}
+          </div>
         </div>
 
-        {/* Main Dashboard Content */}
-        <main className="px-4 md:px-6 pb-8 overflow-x-visible">
-          {/* Offline Warning */}
-          {mlStatus === "offline" && (
-            <div className="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/30 flex items-center gap-3">
-              <span className="text-xl">⚠️</span>
-              <div>
-                <p className="text-sm font-semibold text-red-400">ML Processing Offline</p>
-                <p className="text-xs text-slate-400">Fraud detection is unavailable. Please ensure the ML service is running.</p>
-              </div>
+        {/* Recent Transactions Table */}
+        {recentTransactions.length > 0 && (
+          <div className="card" style={{ marginBottom: "1.5rem" }}>
+            <div className="card-header">
+              <h3 className="card-title">Recent Transactions</h3>
+              <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                {recentTransactions.length} transactions from dataset
+              </span>
             </div>
-          )}
+            <div className="table-container">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Transaction ID</th>
+                    <th>Vendor</th>
+                    <th>Amount</th>
+                    <th>Fraud Score</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recentTransactions.slice(0, 20).map((txn, i) => (
+                    <tr key={i}>
+                      <td style={{ fontWeight: 600 }}>{txn.transaction_id || txn.nameorig || 'N/A'}</td>
+                      <td>{txn.nameorig || txn.vendor_name || 'Unknown'}</td>
+                      <td>${txn.amount?.toLocaleString() || '0'}</td>
+                      <td>
+                        {txn.fraud_score !== null && txn.fraud_score !== undefined ? (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <div style={{ 
+                              width: '60px', 
+                              height: '6px', 
+                              background: 'rgba(255,255,255,0.1)', 
+                              borderRadius: '3px',
+                              overflow: 'hidden'
+                            }}>
+                              <div style={{ 
+                                width: `${txn.fraud_score}%`, 
+                                height: '100%', 
+                                background: (txn.fraud_score || 0) > 70 ? 'var(--danger)' : (txn.fraud_score || 0) > 40 ? 'var(--warning)' : 'var(--success)',
+                                borderRadius: '3px'
+                              }} />
+                            </div>
+                            <span style={{ fontSize: '0.75rem' }}>{Math.round(txn.fraud_score)}%</span>
+                          </div>
+                        ) : (
+                          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>N/A</span>
+                        )}
+                      </td>
+                      <td>
+                        {(txn.is_fraud || ((txn.fraud_score || 0) > 70)) ? (
+                          <span className="badge badge-danger">FRAUD</span>
+                        ) : (
+                          <span className="badge badge-success">LEGITIMATE</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
 
-          {/* Data Action Buttons */}
-          {hasProcessedData && (
-            <div className="mb-6 flex items-center gap-3">
-              <button
-                onClick={handleSaveSuspicious}
-                disabled={savingStatus.saving}
-                className="flex items-center gap-2 px-4 py-2 text-xs font-medium rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20 transition-all disabled:opacity-50"
-              >
-                <Save className="w-4 h-4" />
-                {savingStatus.saving ? "Saving..." : "Save Suspicious"}
-              </button>
-              <button
-                onClick={handleClearData}
-                disabled={clearingStatus.clearing}
-                className="flex items-center gap-2 px-4 py-2 text-xs font-medium rounded-lg bg-red-500/10 text-red-400 border border-red-500/30 hover:bg-red-500/20 transition-all disabled:opacity-50"
-              >
-                <Trash2 className="w-4 h-4" />
-                {clearingStatus.clearing ? "Clearing..." : "Clear Displayed Data"}
-              </button>
-              {savingStatus.message && (
-                <span className={`text-xs ${savingStatus.message.includes('Successfully') ? 'text-emerald-400' : 'text-amber-400'}`}>
-                  {savingStatus.message}
-                </span>
-              )}
-              {clearingStatus.message && (
-                <span className="text-xs text-emerald-400">{clearingStatus.message}</span>
+        {/* Saved Fraud Cases (Database) */}
+        {savedFraudCases.length > 0 && (
+          <div className="card" style={{ marginBottom: "1.5rem", border: '1px solid rgba(239, 68, 68, 0.3)' }}>
+            <div className="card-header">
+              <h3 className="card-title" style={{ color: 'var(--danger)' }}>🚫 Saved Fraud Cases (Database)</h3>
+              <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                {savedFraudCases.length} high-risk transaction(s) stored
+              </span>
+            </div>
+            <div className="table-container">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Transaction ID</th>
+                    <th>From</th>
+                    <th>To</th>
+                    <th>Amount</th>
+                    <th>Fraud Score</th>
+                    <th>Saved At</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {savedFraudCases.slice(0, 20).map((txn, i) => (
+                    <tr key={i}>
+                      <td style={{ fontWeight: 600, color: 'var(--danger)' }}>{txn.transaction_id}</td>
+                      <td>{txn.nameorig || 'Unknown'}</td>
+                      <td>{txn.nameDest || 'Unknown'}</td>
+                      <td>${txn.amount?.toLocaleString() || '0'}</td>
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <div style={{ 
+                            width: '60px', 
+                            height: '6px', 
+                            background: 'rgba(255,255,255,0.1)', 
+                            borderRadius: '3px',
+                            overflow: 'hidden'
+                          }}>
+                            <div style={{ 
+                              width: `${txn.fraud_score}%`, 
+                              height: '100%', 
+                              background: 'var(--danger)',
+                              borderRadius: '3px'
+                            }} />
+                          </div>
+                          <span style={{ fontSize: '0.75rem', color: 'var(--danger)' }}>{Math.round(txn.fraud_score)}%</span>
+                        </div>
+                      </td>
+                      <td style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                        {new Date(txn.savedAt).toLocaleString()}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Charts Row */}
+        <div className="grid-2" style={{ marginBottom: "1.5rem" }}>
+          {/* Risk Gauge */}
+          <div className="card">
+            <div className="card-header">
+              <h3 className="card-title">Real-Time Risk Score</h3>
+              {hasRealData && <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>Live</span>}
+            </div>
+            {hasRealData ? (
+              <>
+                <div style={{ display: "flex", justifyContent: "center", padding: "1rem" }}>
+                  <div className="risk-gauge">
+                    <div className="gauge-bg" />
+                    <div className="gauge-cover" />
+                    <div className="gauge-value" style={{ 
+                      color: stats.riskScore > 70 ? "#ef4444" : stats.riskScore > 40 ? "#f59e0b" : "#10b981"
+                    }}>
+                      {stats.riskScore}
+                    </div>
+                  </div>
+                </div>
+                <div style={{ textAlign: "center", marginTop: "0.5rem" }}>
+                  <span className={stats.riskScore > 70 ? "badge badge-danger" : stats.riskScore > 40 ? "badge badge-warning" : "badge badge-success"}>
+                    {stats.riskScore > 70 ? "HIGH RISK" : stats.riskScore > 40 ? "MEDIUM RISK" : "LOW RISK"}
+                  </span>
+                </div>
+              </>
+            ) : (
+              <div style={{ 
+                display: "flex", 
+                flexDirection: "column",
+                alignItems: "center", 
+                justifyContent: "center", 
+                padding: "3rem 1rem" 
+              }}>
+                <div style={{ fontSize: "3rem", marginBottom: "1rem", opacity: 0.3 }}>📊</div>
+                <p style={{ color: "var(--text-muted)", textAlign: "center" }}>
+                  Upload a dataset to see your risk analysis
+                </p>
+                <Link href="/upload" className="btn btn-primary" style={{ marginTop: "1rem" }}>
+                  Upload Dataset
+                </Link>
+              </div>
+            )}
+          </div>
+
+          {/* Fraud Trend */}
+          <div className="card">
+            <div className="card-header">
+              <h3 className="card-title">Fraud Trend</h3>
+              {hasRealData && (
+                <div style={{ display: "flex", gap: "0.5rem" }}>
+                  <span style={{ width: "12px", height: "12px", borderRadius: "50%", background: "var(--danger)" }} />
+                  <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>Fraud Count</span>
+                </div>
               )}
             </div>
-          )}
-
-          {/* Empty State - No Processed Data */}
-          {!hasProcessedData ? (
-            <div className="flex flex-col items-center justify-center py-20">
-              <div className="w-20 h-20 rounded-full bg-slate-800/50 flex items-center justify-center mb-6">
-                <FileText className="w-10 h-10 text-slate-600" />
+            {hasRealData ? (
+              <div className="chart-container">
+                <div style={{ 
+                  display: "flex", 
+                  alignItems: "flex-end", 
+                  justifyContent: "space-around", 
+                  height: "100%",
+                  padding: "1rem"
+                }}>
+                  {[65, 45, 78, 52, 90, 68, 42, 55, 73, 48, 82, 61, 38, 70].map((val, i) => (
+                    <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.5rem" }}>
+                      <div style={{ 
+                        width: "20px", 
+                        height: `${val * 2.5}px`, 
+                        background: `linear-gradient(180deg, #ef4444 0%, #f87171 100%)`,
+                        borderRadius: "4px 4px 0 0",
+                        boxShadow: "0 -4px 12px rgba(239, 68, 68, 0.3)"
+                      }} />
+                      <span style={{ fontSize: "0.625rem", color: "var(--text-muted)" }}>{i + 1}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <h2 className="text-xl font-semibold text-white mb-2">No Processed Data</h2>
-              <p className="text-sm text-slate-400 mb-6 text-center max-w-md">
-                Upload and process a transaction dataset to see fraud analysis results on the dashboard.
-              </p>
-              <Link
-                href="/upload"
-                className="flex items-center gap-2 px-6 py-3 text-sm font-medium rounded-lg bg-cyan-500 text-white hover:bg-cyan-600 transition-all"
-              >
-                <Upload className="w-4 h-4" />
+            ) : (
+              <div style={{ 
+                display: "flex", 
+                flexDirection: "column",
+                alignItems: "center", 
+                justifyContent: "center", 
+                padding: "3rem 1rem" 
+              }}>
+                <div style={{ fontSize: "3rem", marginBottom: "1rem", opacity: 0.3 }}>📈</div>
+                <p style={{ color: "var(--text-muted)", textAlign: "center" }}>
+                  Fraud trend data will appear here after processing
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* High Risk Vendors & Alerts */}
+        <div className="grid-2">
+          {/* High Risk Vendors */}
+          <div className="card">
+            <div className="card-header">
+              <h3 className="card-title">High-Risk Vendors</h3>
+              <Link href="/upload" className="btn btn-secondary" style={{ padding: "0.5rem 1rem", fontSize: "0.75rem" }}>
                 Upload Dataset
               </Link>
             </div>
-          ) : (
-            <>
-              {/* Hero Alert Banner - Show if high fraud detected */}
-              {kpiData && kpiData.fraudFlags > 0 && (
-                <AlertBanner 
-                  active={true} 
-                  region="Processed Dataset" 
-                  trend={parseFloat(kpiData.fraudRate)} 
-                  severity={parseFloat(kpiData.fraudRate) > 2 ? "critical" : parseFloat(kpiData.fraudRate) > 1 ? "warning" : "attention"}
-                />
-              )}
-
-              {/* KPI Grid - Bound to processed data */}
-              {kpiData && <KPIGrid data={kpiData} />}
-
-              {/* Charts Row */}
-              <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 md:gap-6 mb-6 overflow-x-visible">
-                {/* Fraud Trend Chart - 2 columns */}
-                <div className="xl:col-span-2 overflow-visible">
-                  {kpiData && <FraudTrendChart transactionCount={kpiData.totalTransactions} fraudCount={kpiData.fraudFlags} />}
-                </div>
-
-                {/* Transaction Channel Distribution */}
-                <div className="overflow-visible">
-                  <ChannelDistribution data={channelData.length > 0 ? channelData : undefined} />
-                </div>
+            {vendors.length > 0 ? (
+              <div className="table-container">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Vendor</th>
+                      <th>Transactions</th>
+                      <th>Fraud</th>
+                      <th>Rate</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {vendors.map((vendor, i) => (
+                      <tr key={i}>
+                        <td>
+                          <span style={{ fontWeight: i < 3 ? 600 : 400 }}>
+                            {vendor.name}
+                            {i < 3 && <span style={{ marginLeft: "0.5rem", color: "var(--danger)" }}>⚠</span>}
+                          </span>
+                        </td>
+                        <td>{vendor.transactions.toLocaleString()}</td>
+                        <td>{vendor.fraud}</td>
+                        <td>
+                          <span className={vendor.rate > 5 ? "badge badge-danger" : vendor.rate > 3 ? "badge badge-warning" : "badge badge-success"}>
+                            {vendor.rate}%
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-
-              {/* Risk Gauge & Alerts Row */}
-              <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 md:gap-6 mb-6">
-                {/* Risk Score Gauge */}
-                <div>
-                  {kpiData && <RiskGauge score={kpiData.riskScore} showDetails={true} />}
-                </div>
-
-                {/* Security Alerts - Bound to processed data */}
-                <div>
-                  <SecurityAlertsPanel alerts={alerts.length > 0 ? alerts : undefined} />
-                </div>
-
-                {/* Activity Feed - Bound to processed data */}
-                <div>
-                  <ActivityFeed activities={activity.length > 0 ? activity : undefined} />
-                </div>
+            ) : (
+              <div style={{ 
+                display: "flex", 
+                flexDirection: "column",
+                alignItems: "center", 
+                justifyContent: "center", 
+                padding: "3rem 1rem" 
+              }}>
+                <div style={{ fontSize: "3rem", marginBottom: "1rem", opacity: 0.3 }}>🏪</div>
+                <p style={{ color: "var(--text-muted)", textAlign: "center" }}>
+                  Vendor analysis will appear after uploading a dataset
+                </p>
               </div>
+            )}
+          </div>
 
-              {/* Suspicious Transactions Table - Bound to processed data */}
-              <div className="mb-6">
-                <SuspiciousTransactionsTable transactions={suspiciousTxns.length > 0 ? suspiciousTxns : undefined} />
-              </div>
-
-              {/* Bottom Row - Risk Distribution & Patterns */}
-              <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 md:gap-6">
-                {/* Geographic Risk & High Risk Recipients */}
-                <div className="space-y-4 md:space-y-6">
-                  <GeographicRisk data={geoRiskData.length > 0 ? geoRiskData : undefined} />
-                  <HighRiskRecipients />
-                </div>
-
-                {/* Fraud Pattern Insights */}
-                {kpiData && <FraudPatternInsights fraudCount={kpiData.fraudFlags} totalCount={kpiData.totalTransactions} />}
-              </div>
-            </>
-          )}
-
-          {/* Quick Actions */}
-          <div className="mt-8 pt-6 border-t border-slate-800/50">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-white mb-1">Quick Actions</p>
-                <p className="text-xs text-slate-500">Perform common tasks quickly</p>
-              </div>
-              <div className="flex items-center gap-3">
-                <Link
-                  href="/upload"
-                  className="px-4 py-2 text-xs font-medium rounded-lg bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 hover:bg-cyan-500/20 transition-all"
-                >
-                  Upload Dataset
-                </Link>
-                <Link
-                  href="/explain"
-                  className="px-4 py-2 text-xs font-medium rounded-lg bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 transition-all"
-                >
-                  Explain Transaction
-                </Link>
-                <Link
-                  href="/api-test"
-                  className="px-4 py-2 text-xs font-medium rounded-lg bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 transition-all"
-                >
-                  Test API
-                </Link>
-              </div>
+          {/* Security Alerts */}
+          <div className="card">
+            <div className="card-header">
+              <h3 className="card-title">Security Alerts</h3>
+              {alerts.length > 0 && <span className="badge badge-danger">{alerts.length} new</span>}
             </div>
+            {alerts.length > 0 ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+                {alerts.map((alert, i) => (
+                  <div key={i} style={{ 
+                    padding: "1rem", 
+                    background: "rgba(0, 0, 0, 0.2)", 
+                    borderRadius: "8px",
+                    borderLeft: `3px solid ${alert.severity === "high" ? "#ef4444" : alert.severity === "medium" ? "#f59e0b" : "#3b82f6"}`,
+                    transition: "all 0.2s ease"
+                  }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem" }}>
+                      <span className={alert.severity === "high" ? "badge badge-danger" : alert.severity === "medium" ? "badge badge-warning" : "badge badge-info"}>
+                        {alert.severity.toUpperCase()}
+                      </span>
+                      <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>{alert.time}</span>
+                    </div>
+                    <p style={{ fontSize: "0.875rem", color: "var(--text-secondary)" }}>{alert.message}</p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{ 
+                display: "flex", 
+                flexDirection: "column",
+                alignItems: "center", 
+                justifyContent: "center", 
+                padding: "3rem 1rem" 
+              }}>
+                <div style={{ fontSize: "3rem", marginBottom: "1rem", opacity: 0.3 }}>🔔</div>
+                <p style={{ color: "var(--text-muted)", textAlign: "center" }}>
+                  Security alerts will appear here after processing
+                </p>
+              </div>
+            )}
           </div>
+        </div>
 
-          {/* Footer */}
-          <div className="mt-8 text-center">
-            <p className="text-[10px] text-slate-600">
-              FraudGuard AI - Kenyan Digital Transaction Protection System
-            </p>
+        {/* Quick Actions */}
+        <div style={{ marginTop: "1.5rem" }}>
+          <h3 style={{ marginBottom: "1rem", color: "var(--text-secondary)" }}>Quick Actions</h3>
+          <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
+            <Link href="/upload" className="btn btn-primary">
+              ⇪ Upload Dataset
+            </Link>
+            <Link href="/explain" className="btn btn-secondary">
+              ⟁ Explain Transaction
+            </Link>
+            <Link href="/api-test" className="btn btn-secondary">
+              ⚡ Test API
+            </Link>
           </div>
-        </main>
-      </div>
+        </div>
+      </main>
     </div>
   );
 }

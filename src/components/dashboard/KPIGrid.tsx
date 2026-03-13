@@ -178,7 +178,7 @@ export default function KPIGrid({ data }: KPIGridProps) {
   const stats = data;
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
+    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 md:gap-4 mb-6 overflow-x-visible">
       <KPICard
         title="Total Transactions"
         value={stats.totalTransactions}

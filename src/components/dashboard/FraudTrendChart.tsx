@@ -59,8 +59,8 @@ export default function FraudTrendChart({ transactionCount, fraudCount }: FraudT
   const trendPercent = hasData ? "0.0" : ((trend / Math.max(displayData[0].fraud, 1)) * 100).toFixed(1);
 
   return (
-    <div className="rounded-xl border border-slate-800/60 bg-slate-900/50 p-5">
-      <div className="flex items-center justify-between mb-6">
+    <div className="rounded-xl border border-slate-800/60 bg-slate-900/50 p-4 md:p-5 overflow-visible">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4 md:mb-6">
         <div>
           <h3 className="text-base font-semibold text-white">14-Day Fraud Trend</h3>
           <p className="text-xs text-slate-500 mt-0.5">Transaction analysis from Mar 1 - Mar 14, 2026</p>

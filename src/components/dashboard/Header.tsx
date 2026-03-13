@@ -35,13 +35,13 @@ export default function Header({ mlStatus = "online", hasData = false }: HeaderP
   };
 
   return (
-    <header className="flex items-center justify-between py-4 mb-6">
+    <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 py-4 mb-6">
       <div>
-        <h1 className="text-2xl font-bold text-white tracking-tight">Fraud Detection Center</h1>
+        <h1 className="text-xl md:text-2xl font-bold text-white tracking-tight">Fraud Detection Center</h1>
         <p className="text-sm text-slate-400 mt-0.5">Kenyan Mobile Money Transaction Monitoring</p>
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-2 md:gap-3">
         {/* Live Status */}
         <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800/60 border border-slate-700/50">
           <span className={`w-2 h-2 rounded-full ${mlStatus === "online" ? "bg-emerald-500 animate-pulse" : mlStatus === "loading" ? "bg-amber-500" : "bg-red-500"}`} />
@@ -51,17 +51,17 @@ export default function Header({ mlStatus = "online", hasData = false }: HeaderP
         </div>
 
         {/* Search */}
-        <div className="relative">
+        <div className="relative hidden sm:block">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
           <input
             type="text"
-            placeholder="Search transactions..."
-            className="w-64 pl-10 pr-4 py-2 rounded-lg bg-slate-800/60 border border-slate-700/50 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/20 transition-all"
+            placeholder="Search..."
+            className="w-40 md:w-64 pl-10 pr-4 py-2 rounded-lg bg-slate-800/60 border border-slate-700/50 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/20 transition-all"
           />
         </div>
 
         {/* Date/Time */}
-        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800/60 border border-slate-700/50">
+        <div className="hidden md:flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800/60 border border-slate-700/50">
           <Calendar className="w-4 h-4 text-slate-500" />
           <span className="text-xs font-mono text-slate-300">{currentTime}</span>
         </div>

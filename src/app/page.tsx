@@ -442,7 +442,7 @@ export default function Dashboard() {
   const geoRiskData = getGeoRiskData();
 
   return (
-    <div className="min-h-screen bg-slate-950">
+    <div className="min-h-screen bg-slate-950 overflow-x-hidden">
       {/* Sidebar */}
       <Sidebar userRole={userRole} loggedIn={loggedIn} />
 
@@ -454,7 +454,7 @@ export default function Dashboard() {
         </div>
 
         {/* Main Dashboard Content */}
-        <main className="px-6 pb-8">
+        <main className="px-4 md:px-6 pb-8 overflow-x-visible">
           {/* Offline Warning */}
           {mlStatus === "offline" && (
             <div className="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/30 flex items-center gap-3">
@@ -530,20 +530,20 @@ export default function Dashboard() {
               {kpiData && <KPIGrid data={kpiData} />}
 
               {/* Charts Row */}
-              <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-6">
+              <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 md:gap-6 mb-6 overflow-x-visible">
                 {/* Fraud Trend Chart - 2 columns */}
-                <div className="xl:col-span-2">
+                <div className="xl:col-span-2 overflow-visible">
                   {kpiData && <FraudTrendChart transactionCount={kpiData.totalTransactions} fraudCount={kpiData.fraudFlags} />}
                 </div>
 
                 {/* Transaction Channel Distribution */}
-                <div>
+                <div className="overflow-visible">
                   <ChannelDistribution data={channelData.length > 0 ? channelData : undefined} />
                 </div>
               </div>
 
               {/* Risk Gauge & Alerts Row */}
-              <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-6">
+              <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 md:gap-6 mb-6">
                 {/* Risk Score Gauge */}
                 <div>
                   {kpiData && <RiskGauge score={kpiData.riskScore} showDetails={true} />}
@@ -566,9 +566,9 @@ export default function Dashboard() {
               </div>
 
               {/* Bottom Row - Risk Distribution & Patterns */}
-              <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 md:gap-6">
                 {/* Geographic Risk & High Risk Recipients */}
-                <div className="space-y-6">
+                <div className="space-y-4 md:space-y-6">
                   <GeographicRisk data={geoRiskData.length > 0 ? geoRiskData : undefined} />
                   <HighRiskRecipients />
                 </div>

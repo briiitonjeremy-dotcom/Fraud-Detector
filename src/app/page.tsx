@@ -67,29 +67,46 @@ const defaultStats = {
 };
 
 function normalizeTransaction(raw: RawTransaction): NormalizedTransaction {
-  const fraudScore = raw.fraud_score ?? (raw.is_fraud ? 95 : (raw.prediction ?? 0) * 100);
-  const isFraud = raw.is_fraud === true || fraudScore >= 50;
+  const rawAny = raw as any;
+  
+  const step = rawAny.step ?? rawAny.Step ?? 0;
+  const amount = rawAny.amount ?? rawAny.Amount ?? rawAny.AMOUNT ?? 0;
+  const type = rawAny.type ?? rawAny.Type ?? rawAny.transaction_type ?? "";
+  const nameOrig = rawAny.nameOrig ?? rawAny.nameorig ?? rawAny.sender ?? rawAny.sender_name ?? "";
+  const nameDest = rawAny.nameDest ?? rawAny.namedest ?? rawAny.recipient ?? rawAny.recipient_name ?? rawAny.dest ?? "";
+  const recipientName = rawAny.recipient_name ?? rawAny.RecipientName ?? rawAny.recipient ?? "";
+  const channel = rawAny.channel ?? rawAny.Channel ?? rawAny.transaction_channel ?? "";
+  const region = rawAny.region ?? rawAny.Region ?? rawAny.location ?? "";
+  const timestamp = rawAny.timestamp ?? rawAny.Timestamp ?? rawAny.date ?? rawAny.datetime ?? "";
+  const oldbalanceOrg = rawAny.oldbalanceOrg ?? rawAny.old_balance_orig ?? rawAny.sender_old_balance ?? 0;
+  const newbalanceOrig = rawAny.newbalanceOrig ?? rawAny.new_balance_orig ?? rawAny.sender_new_balance ?? 0;
+  const oldbalanceDest = rawAny.oldbalanceDest ?? rawAny.old_balance_dest ?? rawAny.recipient_old_balance ?? 0;
+  const newbalanceDest = rawAny.newbalanceDest ?? rawAny.new_balance_dest ?? rawAny.recipient_new_balance ?? 0;
+  const deviceId = rawAny.device_id ?? rawAny.DeviceId ?? rawAny.device ?? "";
+  const fraudScoreRaw = rawAny.fraud_score ?? rawAny.fraudScore ?? rawAny.Fraud_Score ?? rawAny.prediction ?? rawAny.Prediction ?? rawAny.score ?? 0;
+  const isFraud = rawAny.is_fraud ?? rawAny.isFraud ?? rawAny.Is_Fraud ?? rawAny.is_fraudulent ?? (fraudScoreRaw >= 50);
+  const fraudScore = typeof fraudScoreRaw === 'number' ? fraudScoreRaw : (fraudScoreRaw ? fraudScoreRaw * 100 : 0);
   
   return {
-    id: raw.step ? `TXN-${raw.step}` : (raw.nameOrig || raw.nameorig || `TXN-${Date.now()}`),
-    step: raw.step || 0,
-    type: raw.type || "",
-    amount: raw.amount ?? 0,
-    sender: raw.nameOrig ?? raw.nameorig ?? "",
-    senderAccount: raw.nameOrig ?? raw.nameorig ?? "",
-    recipient: raw.recipient_name ?? raw.nameDest ?? raw.namedest ?? "",
-    recipientAccount: raw.nameDest ?? raw.namedest ?? "",
-    oldBalanceOrig: raw.oldbalanceOrg ?? 0,
-    newBalanceOrig: raw.newbalanceOrig ?? 0,
-    oldBalanceDest: raw.oldbalanceDest ?? 0,
-    newBalanceDest: raw.newbalanceDest ?? 0,
-    timestamp: raw.timestamp ?? "",
-    channel: raw.channel ?? "",
-    region: raw.region ?? "",
-    deviceId: raw.device_id ?? "",
+    id: step > 0 ? `TXN-${step}` : (nameOrig ? `TXN-${nameOrig.substring(0, 8)}` : `TXN-${Date.now()}`),
+    step: step,
+    type: type,
+    amount: amount,
+    sender: nameOrig || recipientName || nameDest || "",
+    senderAccount: nameOrig || "",
+    recipient: recipientName || nameDest || "",
+    recipientAccount: nameDest || "",
+    oldBalanceOrig: oldbalanceOrg,
+    newBalanceOrig: newbalanceOrig,
+    oldBalanceDest: oldbalanceDest,
+    newBalanceDest: newbalanceDest,
+    timestamp: timestamp,
+    channel: channel,
+    region: region,
+    deviceId: deviceId,
     fraudScore: fraudScore,
     isFraud: isFraud,
-    status: isFraud ? "SUSPICIOUS" : "LEGITIMATE",
+    status: isFraud || fraudScore >= 50 ? "SUSPICIOUS" : "LEGITIMATE",
     riskLevel: fraudScore >= 70 ? "HIGH" : fraudScore >= 40 ? "MEDIUM" : "LOW",
   };
 }
@@ -245,6 +262,7 @@ export default function Dashboard() {
         const storedTransactions = localStorage.getItem('fraudguard_transactions');
         if (storedTransactions && mounted) {
           const txns: RawTransaction[] = JSON.parse(storedTransactions);
+          console.log("[Dashboard] Raw transactions from localStorage:", txns[0]);
           if (txns.length > 0) {
             setRawTransactions(txns);
             setHasRealData(true);

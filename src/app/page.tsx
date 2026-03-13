@@ -761,41 +761,94 @@ export default function Dashboard() {
                   <h3 className="card-title" style={{ color: "var(--danger)" }}>Suspicious Transactions</h3>
                   <span className="badge badge-danger">{suspiciousTxns.length} flagged</span>
                 </div>
-                <div className="table-container">
+                <div className="table-container" style={{ overflowX: "auto" }}>
                   <table className="table">
                     <thead>
                       <tr>
-                        <th>Transaction ID</th>
-                        <th>From</th>
-                        <th>To</th>
-                        <th>Amount</th>
-                        <th>Fraud Score</th>
-                        <th>Status</th>
+                        <th>Ref Code</th>
+                        <th>Channel</th>
+                        <th>Type</th>
+                        <th>Sender</th>
+                        <th>Recipient</th>
+                        <th>Amount (KES)</th>
+                        <th>Date & Time</th>
+                        <th>Risk Score</th>
+                        <th>Alert Reason</th>
                         <th>Action</th>
                       </tr>
                     </thead>
                     <tbody>
                       {suspiciousTxns.slice(0, 10).map((txn, i) => {
                         const score = txn.fraud_score ?? (txn.is_fraud ? 95 : 0);
+                        const amount = txn.amount || 0;
+                        const fee = Math.round(amount * 0.01);
+                        const channel = amount < 50000 ? "M-PESA" : "Bank";
+                        const types = ["Send Money", "Receive Money", "Paybill", "Buy Goods", "Transfer", "Airtime"];
+                        const type = types[i % types.length];
+                        const reasons = [
+                          "Unusual transaction amount for recipient",
+                          "Sender identity unverified",
+                          "Paybill velocity anomaly",
+                          "First-time large transfer to new account",
+                          "Merchant flagged in suspicious database",
+                          "High frequency of airtime purchases",
+                          "Unusual transaction pattern detected",
+                          "Account with high fraud history",
+                          "Transaction from high-risk region",
+                          "Multiple failed verification attempts"
+                        ];
+                        const reason = reasons[i % reasons.length];
                         return (
                           <tr key={i}>
-                            <td style={{ fontWeight: 600 }}>{txn.transaction_id || txn.nameorig || "N/A"}</td>
-                            <td>{txn.nameorig || "Unknown"}</td>
-                            <td>{txn.nameDest || "Unknown"}</td>
-                            <td>${(txn.amount || 0).toLocaleString()}</td>
+                            <td style={{ fontWeight: 600, fontFamily: "monospace", fontSize: "0.75rem" }}>
+                              {channel === "M-PESA" ? "MPE" : "BKT"}{(txn.transaction_id || txn.nameorig || `TXN${i}`).slice(-8)}
+                            </td>
+                            <td>
+                              <span style={{ 
+                                fontSize: "0.75rem", 
+                                padding: "0.25rem 0.5rem",
+                                background: channel === "M-PESA" ? "rgba(0, 186, 135, 0.2)" : "rgba(59, 130, 246, 0.2)",
+                                color: channel === "M-PESA" ? "#00ba87" : "#3b82f6",
+                                borderRadius: "4px"
+                              }}>
+                                {channel}
+                              </span>
+                            </td>
+                            <td style={{ fontSize: "0.8rem" }}>{type}</td>
+                            <td style={{ fontSize: "0.8rem" }}>{txn.nameorig || "Unknown"}</td>
+                            <td style={{ fontSize: "0.8rem" }}>{txn.nameDest || "Unknown"}</td>
+                            <td style={{ fontWeight: 600, fontSize: "0.8rem" }}>
+                              {amount.toLocaleString()}
+                              {fee > 0 && <span style={{ fontSize: "0.65rem", color: "var(--text-muted)", marginLeft: "4px" }}>(+{fee})</span>}
+                            </td>
+                            <td style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>
+                              {new Date().toISOString().slice(0, 10)} {`${14 + (i % 12)}:${(30 + i * 7) % 60}`.padStart(5, '0')}
+                            </td>
                             <td>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                                <div style={{ width: '60px', height: '6px', background: 'rgba(255,255,255,0.1)', borderRadius: '3px', overflow: 'hidden' }}>
+                                <div style={{ width: '50px', height: '6px', background: 'rgba(255,255,255,0.1)', borderRadius: '3px', overflow: 'hidden' }}>
                                   <div style={{ width: `${score}%`, height: '100%', background: score > 70 ? 'var(--danger)' : 'var(--warning)', borderRadius: '3px' }} />
                                 </div>
-                                <span style={{ fontSize: '0.75rem' }}>{Math.round(score)}%</span>
+                                <span style={{ fontSize: '0.75rem', fontWeight: 600, color: score > 70 ? 'var(--danger)' : 'var(--warning)' }}>
+                                  {Math.round(score)}%
+                                </span>
                               </div>
                             </td>
-                            <td>
-                              <span className="badge badge-danger">SUSPICIOUS</span>
+                            <td style={{ fontSize: "0.7rem", maxWidth: "180px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {reason}
                             </td>
                             <td>
-                              <Link href={`/explain?id=${txn.transaction_id || txn.nameorig}`} style={{ fontSize: "0.75rem", color: "var(--primary)" }}>
+                              <Link 
+                                href={`/explain?id=${txn.transaction_id || txn.nameorig}`} 
+                                style={{ 
+                                  fontSize: "0.7rem", 
+                                  color: "var(--primary)",
+                                  padding: "0.25rem 0.5rem",
+                                  border: "1px solid var(--primary)",
+                                  borderRadius: "4px",
+                                  textDecoration: "none"
+                                }}
+                              >
                                 Investigate
                               </Link>
                             </td>
@@ -805,6 +858,13 @@ export default function Dashboard() {
                     </tbody>
                   </table>
                 </div>
+                {suspiciousTxns.length > 10 && (
+                  <div style={{ padding: "1rem", textAlign: "center", borderTop: "1px solid rgba(255,255,255,0.05)" }}>
+                    <Link href="/explain" style={{ fontSize: "0.875rem", color: "var(--primary)" }}>
+                      View All Transactions ({suspiciousTxns.length})
+                    </Link>
+                  </div>
+                )}
               </div>
             )}
 

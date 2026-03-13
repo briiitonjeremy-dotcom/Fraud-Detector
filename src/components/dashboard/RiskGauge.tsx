@@ -11,8 +11,7 @@ export default function RiskGauge({ score }: RiskGaugeProps) {
   const [animatedScore, setAnimatedScore] = useState(0);
 
   useEffect(() => {
-    if (score === null) {
-      setAnimatedScore(0);
+    if (score === null || score === 0) {
       return;
     }
     
